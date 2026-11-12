@@ -1,76 +1,117 @@
-<div align="center">
-    <img src="https://raw.githubusercontent.com/redphx/better-xcloud/refs/heads/typescript/resources/logos/better-xcloud.png" width="256"/>  
-    <h1>Better xCloud</h1>
-    <!-- Latest Version Badge -->
-    <a href="https://github.com/redphx/better-xcloud/releases"><img src="https://img.shields.io/github/v/release/redphx/better-xcloud?label=latest" alt="Latest version" /></a>
-    <!-- Total Downloads Badge -->
-    <a href="https://github.com/redphx/better-xcloud/releases"><img src="https://img.shields.io/github/downloads/redphx/better-xcloud/total?color=%23e15f2c" alt="Total downloads" /></a>
-    <!-- Total Stars Badge -->
-    <a href="https://github.com/redphx/better-xcloud/stargazers"><img src="https://img.shields.io/github/stars/redphx/better-xcloud?color=%23cca400" alt="Total stars" /></a>
+ <div align="center">
+
+<img src="resources/logos/brix.png" width="220" alt="BRIX logo"/>
+
+# BRIX
+
+### Bryair's Interweb Xbox-clouding Gaming
+
+**A different way to experience Xbox Cloud Gaming.**
+
+[Website](https://thebetafish.github.io/BRIX/) · [Source Code](https://github.com/TheBetaFish/BRIX) · [Issues](https://github.com/TheBetaFish/BRIX/issues)
+
+---
+
+**An independent project built on Better xCloud.**
+
 </div>
 
-### Improve Xbox Cloud Gaming (xCloud) experience on [xbox.com/play](https://www.xbox.com/play). It also allows you to use Remote Play on the xCloud website.  
+## About BRIX
 
-> [!WARNING]
-> I only provide Better xCloud on the official repos. Don't download it from anywhere else  
-> Fake websites:
->   - betterxcloud.com
->   - betterxcloud.net
+BRIX is an experimental project aiming to give Xbox Cloud Gaming its own independent web experience.
 
-> [!IMPORTANT]  
-> I only accept pull requests for:
-> - Custom touch controls
-> - Bug fixes
-> AI Slop PRs will be ignored
+Inspired by the presentation of Steam Big Picture and the navigation of Xbox, BRIX aims to combine a custom gaming interface with the existing Xbox Cloud Gaming ecosystem.
 
-**Supported platforms:**  
-- Windows
-- macOS
-- Linux, SteamOS (including Steam Deck)
-- Android, Android TV (including Meta Quest VR Headsets): [redphx/better-xcloud-android](https://github.com/redphx/better-xcloud-android)
-- iOS, iPadOS
+The goal is simple: make cloud gaming feel like its own platform.
 
-This script makes me spend more time with xCloud, and I hope the same thing happens to you.  
-If you like this project please give it a 🌟. Thank you 🙏.
+## Features and Goals
 
-## How to install
-Visit the [home page](https://better-xcloud.github.io) to know how to install Better xCloud on your device.
+BRIX is actively being developed. These are the project's goals, not a list of features guaranteed to be available yet.
 
-## Full documentations
-- For the full details please visit: [**better-xcloud.github.io**](https://better-xcloud.github.io)  
-- [Demo video](https://youtu.be/hyp69Jrb2sQ)
+- **Custom Interface** — An independent gaming interface with its own visual identity.
+- **Game Library** — Browse and discover available cloud games.
+- **Fortnite First** — Fortnite is the initial featured game.
+- **Keyboard and Mouse** — Prioritizing keyboard and mouse gameplay.
+- **Controller Support** — Support for compatible controllers.
+- **Full-screen Gaming** — A dedicated, distraction-free gaming experience.
+- **Microsoft Integration** — Retain the underlying Xbox Cloud Gaming functionality.
 
-## ⚠️ UPDATE Nov 06
+## Website
 
-Better xCloud currently only works on the `xbox.com/play` website. If it redirects you to `play.xbox.com`, you can opt-out by:  
+Visit BRIX:
 
-1. Log in to the `play.xbox.com` website
-2. Press on the profile image at top-right, select `Exit preview`
-3. Fill the dialog or press `Cancel` if you want
-4. You will be redirected to `xbox.com/play`
-5. If you're using Better xCloud Android app, make sure to force close it and open again (clear app cache if needed)
+**https://thebetafish.github.io/BRIX/**
 
-<img height="400" alt="image" src="https://github.com/user-attachments/assets/1b66be2f-3ece-46f4-85b7-e0721e03a383" />
+The website is intended to become the primary way to access BRIX.
 
-I'm working on the newer version of Better xCloud for the new website.
+## Development
 
-⚠️ Please DO NOT report **Better xCloud**'s bugs on [/r/xcloud subreddit](https://reddit.com/r/xcloud/). Report bugs in [Issues](https://github.com/redphx/better-xcloud/issues) or [Telegram channel](https://t.me/betterxcloud) instead.
+BRIX is built using TypeScript and is based on [Better xCloud](https://github.com/redphx/better-xcloud).
 
-## Donation
-If you think this project is useful and want to support future developments, please consider making a donate via [my Ko-fi page](https://ko-fi.com/redphx).  
-Or you can give this project a star, that's also helpful.  
-Thank you.  
+The project currently builds on the existing Better xCloud codebase. Development focuses on adapting and expanding that foundation into a standalone web experience.
 
-## Translation  
-Help translating **Better xCloud** to another languagues using [Crowdin](https://crowdin.com/project/better-xcloud).  
-Use [this post](https://github.com/redphx/better-xcloud/discussions/131) for discussion. 
+### Technology
 
-## Acknowledgements  
-- The mouse controlling feature is heavily inspired by the "Mouse spinning" feature in [Yuzu emulator](https://github.com/yuzu-emu/yuzu-mainline)
-- [n-thumann/xbox-cloud-server-selector](https://github.com/n-thumann/xbox-cloud-server-selector) for the idea of IPv6 feature
-- Icons by [Phosphor Icons](https://phosphoricons.com)
-- [PromptFont](https://shinmera.com/promptfont) by Yukari "Shinmera" Hafner
+- TypeScript
+- Bun
+- Stylus
+- HTML and CSS
+- GitHub Pages
 
-## Disclaimers  
-- Use it at your own risk.
-- This project is not affiliated with Xbox in any way. All Xbox logos/icons/trademarks are copyright of their respective owners.
+### Building locally
+
+Requirements:
+- [Bun](https://bun.sh/)
+- Git
+
+Clone the repository:
+
+```bash
+git clone https://github.com/TheBetaFish/BRIX.git
+cd BRIX
+```
+
+Install dependencies:
+
+```bash
+bun install
+```
+
+Build:
+
+```bash
+bun run build.ts
+```
+
+Refer to the build configuration for the current output and development workflow.
+
+## Upstream Project
+
+BRIX builds upon the work of:
+
+**[Better xCloud](https://github.com/redphx/better-xcloud)** by [redphx](https://github.com/redphx).
+
+Better xCloud provides the foundation for Xbox Cloud Gaming integration.
+
+We appreciate the original developers and contributors whose work makes this project possible.
+
+## Disclaimer
+
+BRIX is an independent, community-developed project.
+
+- BRIX is not affiliated with, endorsed by, or sponsored by Microsoft or Xbox.
+- Xbox, Xbox Cloud Gaming, and related trademarks belong to Microsoft.
+- Microsoft account authentication and cloud gaming availability remain subject to Microsoft's requirements and service availability.
+- Use BRIX at your own risk.
+
+Please review the repository's LICENSE file for applicable licensing terms.
+
+---
+
+<div align="center">
+
+**BRIX**
+
+*Your games. Your cloud. Your way.*
+
+</div>
