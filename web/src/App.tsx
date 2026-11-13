@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Gamepad2, Home, Library, Search, Settings, SlidersHorizontal,
-  Clock3, Play, Star, Volume2, Monitor, Bell, ChevronRight
+  Clock3, Play, Monitor, Bell
 } from "lucide-react";
 import { Slider } from "./components/ui/slider";
 
