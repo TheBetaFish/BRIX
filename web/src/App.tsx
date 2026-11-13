@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import {
   Home, Cloud, Gamepad2, Settings, Search, PanelLeftClose, PanelLeftOpen,
-  Play, Clock3, Monitor, Bell, ChevronRight, MoreHorizontal, Star,
-  Info, FolderPlus, Trash2, X, Wifi, Maximize2, ArrowLeft, Sun, Moon,
-  Layers3, SlidersHorizontal
+  Play, Clock3, ChevronRight, MoreHorizontal, Star,
+  Info, Trash2, X, Wifi, Maximize2, ArrowLeft, Sun, Moon,
+  Layers3
 } from "lucide-react";
-import { Slider } from "./components/ui/slider";
 
 type Page = "Home" | "Xbox Cloud Gaming Library" | "Local Library" | "Settings";
 type Theme = "light" | "dark" | "metallic";
@@ -36,11 +35,6 @@ function App() {
   const [activeGame, setActiveGame] = useState<Game | null>(null);
   const [detailsGame, setDetailsGame] = useState<Game | null>(null);
   const [context, setContext] = useState<{ game: Game; x: number; y: number } | null>(null);
-  const [notice, setNotice] = useState("BRIX is ready");
-  const [volume, setVolume] = useState([70]);
-  const [brightness, setBrightness] = useState([85]);
-  const [notifications, setNotifications] = useState(true);
-  const [hardwareAcceleration, setHardwareAcceleration] = useState(true);
 
   const xboxGames = useMemo(() => games.filter(g => g.source === "xbox" && g.title.toLowerCase().includes(xboxQuery.toLowerCase())), [games, xboxQuery]);
   const localGames = useMemo(() => games.filter(g => g.source === "local" && g.title.toLowerCase().includes(localQuery.toLowerCase())), [games, localQuery]);
@@ -61,18 +55,11 @@ function App() {
     setGames(current => current.filter(g => g.title !== game.title));
     setFavorites(current => current.filter(t => t !== game.title));
     setContext(null);
-    setNotice(`${game.title} removed from Local Library`);
-  }
-
-  function addCollection(game: Game) {
-    setNotice(`${game.title} added to your collection`);
-    setContext(null);
   }
 
   function changePage(next: Page) {
     setPage(next);
     setContext(null);
-    setNotice(next);
   }
 
   const pageTitle = page === "Xbox Cloud Gaming Library" ? "Xbox Cloud Gaming" : page;
@@ -137,7 +124,6 @@ function App() {
         <div className="page-content">
           {page !== "Settings" && <div className="page-heading">
             <div><div className="eyebrow">BRIX / {page === "Home" ? "DASHBOARD" : page === "Local Library" ? "LOCAL COLLECTION" : "XBOX CLOUD"}</div><h1>{page === "Home" ? "Welcome back." : pageTitle}</h1><p>{pageDescription}</p></div>
-            <div className="heading-icon"><SlidersHorizontal size={22}/></div>
           </div>}
 
           {page === "Home" && <>
@@ -150,7 +136,7 @@ function App() {
               <div className="feature-bottom"><span><span className="status-light pending-light"/> Cloud streaming setup required</span><span>FEATURED GAME <ChevronRight size={12}/></span></div>
             </section>
             <section className="home-section">
-              <div className="section-heading"><div><div className="eyebrow">PICK UP WHERE YOU LEFT OFF</div><h2>Recently played</h2></div><button className="text-button" onClick={() => setNotice("Recent games are shown here as you launch them.")}>Your activity <ChevronRight size={14}/></button></div>
+              <div className="section-heading"><div><div className="eyebrow">PICK UP WHERE YOU LEFT OFF</div><h2>Recently played</h2></div></div>
               {recentGames.length ? <div className="game-grid">{recentGames.map((g, i) => gameCard(g, i))}</div> : <div className="recent-empty"><Clock3 size={22}/><div><strong>No recent games yet</strong><span>Launch a game from either library and it will appear here.</span></div></div>}
             </section>
           </>}
@@ -166,28 +152,20 @@ function App() {
           </>}
 
           {page === "Settings" && <>
-            <div className="page-heading"><div><div className="eyebrow">BRIX / PREFERENCES</div><h1>Settings</h1><p>Make BRIX feel like your own.</p></div><div className="heading-icon"><Settings size={22}/></div></div>
+            <div className="page-heading"><div><div className="eyebrow">BRIX / PREFERENCES</div><h1>Settings</h1><p>Customize the BRIX interface.</p></div></div>
             <div className="settings-layout">
               <section className="aqua-window"><div className="window-titlebar"><span>Appearance</span></div><div className="window-content"><h2>Interface theme</h2><p className="setting-description">Choose the visual style used throughout BRIX.</p><div className="theme-cards">
                 {([["light", "Aqua Light", "Bright glass and classic Aqua gloss", Sun], ["dark", "Dark Aero", "PS3-inspired dark glass and blue light", Moon], ["metallic", "Metallic", "Longhorn Slate-inspired metal and glass", Layers3]] as const).map(([value, label, description, Icon]) => <button key={value} className={`theme-card ${theme === value ? "chosen" : ""}`} onClick={() => setTheme(value)}><span className="theme-preview"><Icon size={23}/></span><strong>{label}</strong><small>{description}</small>{theme === value && <span className="theme-check">ACTIVE</span>}</button>)}
               </div></div></section>
-              <section className="aqua-window"><div className="window-titlebar"><span>Audio & display</span></div><div className="window-content">
-                <div className="control-heading"><div><h2>Output volume</h2><p>Interface audio level.</p></div><strong>{volume[0]}%</strong></div><Slider value={volume} onValueChange={setVolume} max={100} aria-label="Output volume"/><div className="control-divider"/>
-                <div className="control-heading"><div><h2>Display brightness</h2><p>Interface brightness preference.</p></div><strong>{brightness[0]}%</strong></div><Slider value={brightness} onValueChange={setBrightness} max={100} aria-label="Display brightness"/>
-                <div className="control-divider"/>
-                <label className="setting-toggle"><span><Bell size={16}/><span><strong>Notifications</strong><small>Show interface notifications</small></span></span><input type="checkbox" checked={notifications} onChange={e => setNotifications(e.target.checked)}/></label>
-                <div className="control-divider"/>
-                <label className="setting-toggle"><span><Monitor size={16}/><span><strong>Hardware acceleration</strong><small>Use GPU acceleration when supported</small></span></span><input type="checkbox" checked={hardwareAcceleration} onChange={e => setHardwareAcceleration(e.target.checked)}/></label>
-              </div></section>
+              <section className="aqua-window"><div className="window-titlebar"><span>Streaming status</span></div><div className="window-content"><h2>Xbox Cloud Gaming is not connected</h2><p className="setting-description">BRIX currently provides the interface and library prototype. Xbox sign-in, stream startup, and controller input have not been implemented yet. No connection settings are available until the streaming client exists.</p></div></section>
             </div>
           </>}
 
-          <div className="notice-bar" role="status"><span>{notice}</span><button onClick={() => setNotice("BRIX is ready")} aria-label="Dismiss notification">×</button></div>
           <footer className="page-footer">BRIX is an independent interface project. Xbox sign-in and cloud streaming are not connected yet.</footer>
         </div>
       </section>
 
-      {context && <><button className="context-dismiss" aria-label="Close game menu" onClick={() => setContext(null)}/><div className="game-context-menu" style={{ left: context.x, top: context.y }}><div className="context-title">{context.game.title}</div><button onClick={() => { setDetailsGame(context.game); setContext(null); }}><Info size={15}/> View details</button>{context.game.source === "local" && <button onClick={() => addFavorite(context.game)}><Star size={15}/> {favorites.includes(context.game.title) ? "Remove favorite" : "Add to favorites"}</button>}<button onClick={() => addCollection(context.game)}><FolderPlus size={15}/> Add to collection</button>{context.game.source === "local" && <button className="danger-action" onClick={() => removeLocal(context.game)}><Trash2 size={15}/> Remove from library</button>}</div></>}
+      {context && <><button className="context-dismiss" aria-label="Close game menu" onClick={() => setContext(null)}/><div className="game-context-menu" style={{ left: context.x, top: context.y }}><div className="context-title">{context.game.title}</div><button onClick={() => { setDetailsGame(context.game); setContext(null); }}><Info size={15}/> View details</button>{context.game.source === "local" && <button onClick={() => addFavorite(context.game)}><Star size={15}/> {favorites.includes(context.game.title) ? "Remove favorite" : "Add to favorites"}</button>}{context.game.source === "local" && <button className="danger-action" onClick={() => removeLocal(context.game)}><Trash2 size={15}/> Remove from library</button>}</div></>}
 
       {detailsGame && <div className="modal-scrim" onClick={() => setDetailsGame(null)}><section className="details-modal" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailsGame(null)} aria-label="Close details"><X size={18}/></button><div className={`details-art art-${detailsGame.title.toLowerCase().replaceAll(" ", "-")}`}><Gamepad2 size={58}/></div><div className="details-body"><div className="eyebrow">GAME INFORMATION · {detailsGame.source === "xbox" ? "XBOX CLOUD" : "LOCAL"}</div><h2>{detailsGame.title}</h2><p>{detailsGame.description}</p><div className="details-facts"><span>GENRE<strong>{detailsGame.category}</strong></span><span>LIBRARY<strong>{detailsGame.source === "xbox" ? "Xbox Cloud Gaming" : "Local Library"}</strong></span><span>SCREENSHOTS<strong>Not added</strong></span></div><button className="aqua-button primary" onClick={() => { setDetailsGame(null); launch(detailsGame); }}><Play size={15} fill="currentColor"/> Launch game</button></div></section></div>}
 
