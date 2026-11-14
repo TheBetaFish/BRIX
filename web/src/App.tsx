@@ -186,8 +186,14 @@ function App() {
     try {
       const { data, error } = await supabase.auth.linkIdentity({
         provider: "azure",
-        options: { scopes: "openid profile email XboxLive.signin offline_access",
-          redirectTo: window.location.origin + window.location.pathname, queryParams: { prompt: "select_account" } }
+        options: {
+          // Supabase Azure identity linking needs the email scope. Xbox Live
+          // permissions belong in a separate Xbox authorization flow.
+          scopes: "email",
+          redirectTo: window.location.origin + window.location.pathname,
+          queryParams: { prompt: "select_account" },
+          skipBrowserRedirect: true,
+        }
       });
       if (error) {
         setAuthNotice("Microsoft linking failed: " + error.message);
