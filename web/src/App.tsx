@@ -6,7 +6,7 @@ import {
   Home, Cloud, Gamepad2, Settings, Search, PanelLeftClose, PanelLeftOpen,
   Play, Clock3, ChevronRight, MoreHorizontal, Star,
   Info, Trash2, X, Wifi, Maximize2, ArrowLeft, Sun, Moon,
-  Layers3
+  Layers3, Users, UserPlus, ChevronDown, Check, Copy, Monitor
 } from "lucide-react";
 
 type Page = "Home" | "Xbox Cloud Gaming Library" | "Local Library" | "Settings" | "Account";
@@ -43,6 +43,16 @@ function App() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
   const avatarInput = useRef<HTMLInputElement>(null);
+  const [accountsOpen, setAccountsOpen] = useState(false);
+  const [friendCodeInput, setFriendCodeInput] = useState("");
+  const [friendNotice, setFriendNotice] = useState("");
+  const [friendBusy, setFriendBusy] = useState(false);
+  const [brixId, setBrixId] = useState("");
+  const [friendships, setFriendships] = useState<Array<{
+    id: string; requester_id: string; addressee_id: string; status: "pending" | "accepted" | "declined";
+    profile: { id: string; brix_id: string; display_name: string; avatar_url: string | null; microsoft_connected: boolean } | null;
+  }>>([]);
+  const microsoftConnected = Boolean(session?.user.identities?.some(identity => identity.provider === "azure"));
 
   useEffect(() => {
     if (!supabase) { setAuthLoading(false); return; }
@@ -71,7 +81,7 @@ function App() {
     async function loadProfile() {
       const { data, error } = await supabase!
         .from("profiles")
-        .select("display_name, avatar_url, avatar_path")
+        .select("display_name, avatar_url, avatar_path, brix_id")
         .eq("id", session!.user.id)
         .maybeSingle();
       if (cancelled) return;
@@ -83,10 +93,81 @@ function App() {
       setProfileName(data?.display_name || session!.user.user_metadata?.display_name || "");
       setAvatarUrl(data?.avatar_url ?? "");
       setAvatarPath(data?.avatar_path ?? "");
+      setBrixId(data?.brix_id ?? "");
     }
     void loadProfile();
     return () => { cancelled = true; };
   }, [session?.user.id]);
+
+  async function loadFriendships() {
+    if (!supabase || !session) { setFriendships([]); return; }
+    const client = supabase;
+    const currentUserId = session.user.id;
+    const { data, error } = await client.from("friendships").select("id, requester_id, addressee_id, status")
+      .or("requester_id.eq." + currentUserId + ",addressee_id.eq." + currentUserId).order("created_at", { ascending: false });
+    if (error) { setFriendNotice("Friends could not be loaded. Apply the latest BRIX SQL schema."); return; }
+    const rows = data ?? [];
+    const otherIds = [...new Set(rows.map(row => row.requester_id === currentUserId ? row.addressee_id : row.requester_id))];
+    if (!otherIds.length) { setFriendships([]); return; }
+    const { data: profiles, error: profileError } = await client.from("profiles")
+      .select("id, brix_id, display_name, avatar_url, microsoft_connected").in("id", otherIds);
+    if (profileError) { setFriendNotice("Friend profiles could not be loaded."); return; }
+    const byId = new Map((profiles ?? []).map(profile => [profile.id, profile]));
+    setFriendships(rows.map(row => ({ ...row, status: row.status as "pending" | "accepted" | "declined",
+      profile: byId.get(row.requester_id === currentUserId ? row.addressee_id : row.requester_id) ?? null })));
+  }
+
+  useEffect(() => { void loadFriendships(); }, [session?.user.id]);
+
+  useEffect(() => {
+    if (!supabase || !session) return;
+    const linked = Boolean(session.user.identities?.some(identity => identity.provider === "azure"));
+    void supabase.from("profiles").update({ microsoft_connected: linked }).eq("id", session.user.id);
+  }, [session?.user.id, session?.user.identities?.length]);
+
+  async function addFriendByCode() {
+    if (!supabase || !session) { setFriendNotice("Sign in to add friends."); return; }
+    const code = friendCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setFriendBusy(true); setFriendNotice("");
+    const { data: target, error: lookupError } = await supabase.from("profiles").select("id, brix_id").eq("brix_id", code).maybeSingle();
+    if (lookupError || !target) {
+      setFriendNotice(lookupError ? "Friend lookup failed: " + lookupError.message : "No BRIX account matches that friend code.");
+      setFriendBusy(false); return;
+    }
+    if (target.id === session.user.id) { setFriendNotice("You cannot add your own account."); setFriendBusy(false); return; }
+    const { error } = await supabase.from("friendships").insert({ requester_id: session.user.id, addressee_id: target.id, status: "pending" });
+    if (error) setFriendNotice(error.code === "23505" ? "A friendship or request already exists with that account." : "Could not send request: " + error.message);
+    else { setFriendNotice("Friend request sent."); setFriendCodeInput(""); await loadFriendships(); }
+    setFriendBusy(false);
+  }
+
+  async function respondToFriendRequest(id: string, status: "accepted" | "declined") {
+    if (!supabase) return;
+    const { error } = await supabase.from("friendships").update({ status }).eq("id", id);
+    setFriendNotice(error ? "Could not update request: " + error.message : status === "accepted" ? "Friend added." : "Request declined.");
+    if (!error) await loadFriendships();
+  }
+
+  async function removeFriend(id: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from("friendships").delete().eq("id", id);
+    setFriendNotice(error ? "Could not remove friend: " + error.message : "Friend removed.");
+    if (!error) await loadFriendships();
+  }
+
+  async function connectMicrosoft() {
+    if (!supabase || !session) { setAuthNotice("Sign in to BRIX before linking a Microsoft account."); changePage("Account"); return; }
+    setAuthBusy(true); setAuthNotice("");
+    const { data, error } = await supabase.auth.linkIdentity({
+      provider: "azure",
+      options: { scopes: "openid profile email XboxLive.signin offline_access",
+        redirectTo: window.location.origin + window.location.pathname, queryParams: { prompt: "select_account" } }
+    });
+    if (error) { setAuthNotice("Microsoft linking could not start. Check that the Azure provider is enabled in Supabase: " + error.message); setAuthBusy(false); return; }
+    if (data?.url) window.location.assign(data.url);
+    else { setAuthNotice("Microsoft authorization did not return a redirect URL."); setAuthBusy(false); }
+  }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -292,7 +373,31 @@ function App() {
       <section className="workspace">
         <header className="toolbar">
           <div className="toolbar-title"><Gamepad2 size={18}/> <span>BRIX</span><ChevronRight size={13}/><span>{pageTitle}</span></div>
-          <div className="toolbar-actions"><button className="account-button" onClick={() => changePage("Account")}><span className="account-avatar">{avatarUrl ? <img src={avatarUrl} alt="" /> : (profileName || session?.user.email || "A").slice(0, 1).toUpperCase()}</span> {profileName || (session ? "My account" : "Account")}</button><div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div></div>
+          <div className="toolbar-actions">
+            <div className="accounts-menu-wrap">
+              <button className="account-button accounts-trigger" aria-expanded={accountsOpen} onClick={() => setAccountsOpen(value => !value)}><span className="account-avatar">{avatarUrl ? <img src={avatarUrl} alt="" /> : (profileName || session?.user.email || "A").slice(0, 1).toUpperCase()}</span><span>Accounts</span><ChevronDown size={14}/></button>
+              {accountsOpen && <div className="accounts-dropdown">
+                <div className="accounts-dropdown-heading"><strong>Accounts</strong><button className="dropdown-close" onClick={() => setAccountsOpen(false)} aria-label="Close accounts menu"><X size={15}/></button></div>
+                <button className="dropdown-account-row" onClick={() => { setAccountsOpen(false); changePage("Account"); }}><span className="dropdown-avatar">{avatarUrl ? <img src={avatarUrl} alt="" /> : (profileName || "A").slice(0,1).toUpperCase()}</span><span className="dropdown-account-copy"><strong>{profileName || (session ? "BRIX account" : "Guest")}</strong><small>{session ? session.user.email : "Not signed in"}</small></span><ChevronDown className="dropdown-row-chevron" size={14}/></button>
+                {session && <div className="brix-code-row"><span>BRIX ID <strong>{brixId || "Loading…"}</strong></span><button title="Copy BRIX ID" onClick={() => { if (brixId) void navigator.clipboard.writeText(brixId); }}><Copy size={13}/></button></div>}
+                <div className="dropdown-section-title"><Users size={14}/> FRIENDS <span>{friendships.filter(row => row.status === "accepted").length}</span></div>
+                {session ? <>
+                  <div className="friend-add-row"><input value={friendCodeInput} onChange={event => setFriendCodeInput(event.target.value)} placeholder="Enter BRIX friend code" aria-label="BRIX friend code"/><button onClick={addFriendByCode} disabled={friendBusy || !friendCodeInput.trim()} title="Send friend request"><UserPlus size={15}/></button></div>
+                  {friendships.filter(row => row.status === "pending" && row.addressee_id === session.user.id).map(row => <div className="friend-dropdown-row" key={row.id}><span className="dropdown-avatar small">{row.profile?.avatar_url ? <img src={row.profile.avatar_url} alt=""/> : (row.profile?.display_name || "?").slice(0,1).toUpperCase()}</span><span className="friend-row-copy"><strong>{row.profile?.display_name || "BRIX player"}</strong><small>Wants to be your friend</small></span><button className="friend-accept" onClick={() => respondToFriendRequest(row.id,"accepted")} title="Accept"><Check size={14}/></button><button className="friend-remove" onClick={() => respondToFriendRequest(row.id,"declined")} title="Decline"><X size={14}/></button></div>)}
+                  {friendships.filter(row => row.status === "accepted").map(row => <div className="friend-dropdown-row" key={row.id}><span className="dropdown-avatar small">{row.profile?.avatar_url ? <img src={row.profile.avatar_url} alt=""/> : (row.profile?.display_name || "?").slice(0,1).toUpperCase()}</span><span className="friend-row-copy"><strong>{row.profile?.display_name || "BRIX player"}</strong><small>{row.profile?.brix_id || "BRIX member"}</small></span><span className="platform-mini">BRIX</span>{row.profile?.microsoft_connected && <span className="platform-mini microsoft">MS</span>}<button className="friend-remove" onClick={() => removeFriend(row.id)} title="Remove friend"><X size={13}/></button></div>)}
+                  {friendships.filter(row => row.status === "pending" && row.requester_id === session.user.id).map(row => <div className="friend-dropdown-row" key={row.id}><span className="dropdown-avatar small">?</span><span className="friend-row-copy"><strong>{row.profile?.display_name || "BRIX player"}</strong><small>Request sent</small></span><span className="platform-mini">PENDING</span><button className="friend-remove" onClick={() => removeFriend(row.id)} title="Cancel request"><X size={13}/></button></div>)}
+                  {friendships.length === 0 && <p className="friends-empty">No friends yet. Add someone with their BRIX ID.</p>}
+                </> : <p className="friends-empty">Sign in to add friends and see your friends list.</p>}
+                {friendNotice && <p className="dropdown-notice" role="status">{friendNotice}</p>}
+                <div className="dropdown-section-title"><Monitor size={14}/> LINKED PLATFORMS</div>
+                <div className="platform-row"><span className="platform-dot brix-dot"/> BRIX <span className="platform-state">{session ? "Connected" : "Guest"}</span></div>
+                <div className="platform-row"><span className="platform-dot microsoft-dot"/> Microsoft / Xbox <span className="platform-state">{microsoftConnected ? "Linked" : "Not linked"}</span></div>
+                {session && !microsoftConnected && <button className="connect-platform-button" onClick={() => { setAccountsOpen(false); void connectMicrosoft(); }}>Connect Microsoft account</button>}
+                {!session && <button className="connect-platform-button" onClick={() => { setAccountsOpen(false); changePage("Account"); }}>Sign in to BRIX</button>}
+              </div>}
+            </div>
+            <div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div>
+          </div>
         </header>
 
         <div className="page-content">
@@ -333,7 +438,7 @@ function App() {
               <p>{session ? `Signed in as ${session.user.email}.` : "Sign in to keep your BRIX experience together across devices."}</p>
               {!isSupabaseConfigured && <p className="auth-notice" role="status">Supabase setup is pending. The form will become active once the project URL and anon key are configured.</p>}
               {session && <div className="account-authenticated">
-                <div className="profile-card">
+                <div className="platform-settings-card"><div><strong>Linked platforms</strong><small>Connect external accounts to your BRIX profile.</small></div><div className="platform-row"><span className="platform-dot microsoft-dot"/> Microsoft / Xbox <span className="platform-state">{microsoftConnected ? "Linked" : "Not linked"}</span></div>{!microsoftConnected && <button className="aqua-button" type="button" onClick={connectMicrosoft} disabled={authBusy}>{authBusy ? "Opening Microsoft…" : "Connect Microsoft account"}</button>}<small>Microsoft linking requires the Azure provider to be enabled in Supabase. This links your identity; Xbox Cloud Gaming streaming is a separate integration.</small></div><div className="profile-card">
                   <div className="profile-avatar-large">{avatarUrl ? <img src={avatarUrl} alt="Your profile picture" /> : <span>{(profileName || session.user.email || "A").slice(0, 1).toUpperCase()}</span>}</div>
                   <div className="profile-avatar-actions">
                     <button className="aqua-button" type="button" onClick={() => avatarInput.current?.click()} disabled={profileBusy}>{profileBusy ? "Please wait…" : avatarUrl ? "Change picture" : "Upload picture"}</button>
