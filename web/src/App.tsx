@@ -6,7 +6,7 @@ import {
   Layers3
 } from "lucide-react";
 
-type Page = "Home" | "Xbox Cloud Gaming Library" | "Local Library" | "Settings";
+type Page = "Home" | "Xbox Cloud Gaming Library" | "Local Library" | "Settings" | "Account";
 type Theme = "light" | "dark" | "metallic";
 type Game = { title: string; category: string; tag?: string; source: "xbox" | "local"; description: string };
 
@@ -25,6 +25,9 @@ const navItems = [
 
 function App() {
   const [page, setPage] = useState<Page>("Home");
+  const [showWelcome, setShowWelcome] = useState(() => localStorage.getItem("brix-entry-choice") !== "guest");
+  const [accountMode, setAccountMode] = useState<"signin" | "signup">("signin");
+  const [authNotice, setAuthNotice] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
   const [games, setGames] = useState<Game[]>(initialGames);
@@ -62,7 +65,13 @@ function App() {
     setContext(null);
   }
 
-  const pageTitle = page === "Xbox Cloud Gaming Library" ? "Xbox Cloud Gaming" : page;
+  function continueAsGuest() {
+    localStorage.setItem("brix-entry-choice", "guest");
+    setShowWelcome(false);
+    setPage("Home");
+  }
+
+  const pageTitle = page === "Xbox Cloud Gaming Library" ? "Xbox Cloud Gaming" : page === "Account" ? "BRIX Account" : page;
   const pageDescription = page === "Home" ? "Your games, ready when you are." : page === "Xbox Cloud Gaming Library" ? "Browse games available through Xbox Cloud Gaming." : page === "Local Library" ? "Your own collection of locally hosted and web games." : "Customize the BRIX experience.";
 
   function gameCard(game: Game, index: number) {
@@ -118,11 +127,11 @@ function App() {
       <section className="workspace">
         <header className="toolbar">
           <div className="toolbar-title"><Gamepad2 size={18}/> <span>BRIX</span><ChevronRight size={13}/><span>{pageTitle}</span></div>
-          <div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div>
+          <div className="toolbar-actions"><button className="account-button" onClick={() => changePage("Account")}><span className="account-avatar">?</span> Account</button><div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div></div>
         </header>
 
         <div className="page-content">
-          {page !== "Settings" && <div className="page-heading">
+          {page !== "Settings" && page !== "Account" && <div className="page-heading">
             <div><div className="eyebrow">BRIX / {page === "Home" ? "DASHBOARD" : page === "Local Library" ? "LOCAL COLLECTION" : "XBOX CLOUD"}</div><h1>{page === "Home" ? "Welcome back." : pageTitle}</h1><p>{pageDescription}</p></div>
           </div>}
 
@@ -151,6 +160,25 @@ function App() {
             {localGames.length ? <div className="game-grid">{localGames.map(gameCard)}</div> : <div className="local-empty"><Gamepad2 size={30}/><h2>Your Local Library is empty</h2><p>Add your own web games to the local library when you're ready.</p></div>}
           </>}
 
+
+          {page === "Account" && <div className="account-screen">
+            <div className="account-panel">
+              <div className="account-brand"><div className="brand-mark">B</div><span>BRIX ACCOUNT</span></div>
+              <h1>{accountMode === "signin" ? "Welcome back." : "Create your account."}</h1>
+              <p>Sign in to keep your BRIX experience together across devices.</p>
+              <div className="account-tabs"><button className={accountMode === "signin" ? "active" : ""} onClick={() => { setAccountMode("signin"); setAuthNotice(""); }}>Sign in</button><button className={accountMode === "signup" ? "active" : ""} onClick={() => { setAccountMode("signup"); setAuthNotice(""); }}>Create account</button></div>
+              <form className="account-form" onSubmit={e => { e.preventDefault(); setAuthNotice("Account sign-in is not connected yet. Your details have not been submitted or saved."); }}>
+                {accountMode === "signup" && <label>Display name<input type="text" placeholder="How should BRIX address you?" autoComplete="nickname"/></label>}
+                <label>Email address<input type="email" placeholder="you@example.com" autoComplete="email" required/></label>
+                <label>Password<input type="password" placeholder="Enter your password" autoComplete={accountMode === "signin" ? "current-password" : "new-password"} required minLength={8}/></label>
+                <button className="aqua-button primary account-submit" type="submit">{accountMode === "signin" ? "Sign in" : "Create account"}</button>
+              </form>
+              {authNotice && <p className="auth-notice" role="status">{authNotice}</p>}
+              <button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button>
+              <p className="account-footnote">Account authentication is not connected yet. This screen is a UI preview; no credentials are transmitted or stored.</p>
+            </div>
+          </div>}
+
           {page === "Settings" && <>
             <div className="page-heading"><div><div className="eyebrow">BRIX / PREFERENCES</div><h1>Settings</h1><p>Customize the BRIX interface.</p></div></div>
             <div className="settings-layout">
@@ -164,6 +192,17 @@ function App() {
           <footer className="page-footer">BRIX is an independent interface project. Xbox sign-in and cloud streaming are not connected yet.</footer>
         </div>
       </section>
+
+
+      {showWelcome && <div className="welcome-scrim"><section className="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+        <div className="welcome-brand"><div className="brand-mark">B</div><span>BRIX</span></div>
+        <div className="eyebrow">YOUR GAMES. YOUR SPACE.</div>
+        <h1 id="welcome-title">Welcome to BRIX.</h1>
+        <p>Sign in or create an account to get started, or continue as a guest.</p>
+        <button className="aqua-button primary welcome-primary" onClick={() => { setShowWelcome(false); setPage("Account"); setAccountMode("signin"); }}>Sign in / Sign up</button>
+        <button className="guest-button" onClick={continueAsGuest}>Continue as guest</button>
+        <small>You can access the account screen later from the top bar.</small>
+      </section></div>}
 
       {context && <><button className="context-dismiss" aria-label="Close game menu" onClick={() => setContext(null)}/><div className="game-context-menu" style={{ left: context.x, top: context.y }}><div className="context-title">{context.game.title}</div><button onClick={() => { setDetailsGame(context.game); setContext(null); }}><Info size={15}/> View details</button>{context.game.source === "local" && <button onClick={() => addFavorite(context.game)}><Star size={15}/> {favorites.includes(context.game.title) ? "Remove favorite" : "Add to favorites"}</button>}{context.game.source === "local" && <button className="danger-action" onClick={() => removeLocal(context.game)}><Trash2 size={15}/> Remove from library</button>}</div></>}
 
