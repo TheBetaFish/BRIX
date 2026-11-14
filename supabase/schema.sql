@@ -117,14 +117,14 @@ create policy "Participants can remove friendship rows" on public.friendships
 
 create or replace function public.prevent_friendship_identity_change()
 returns trigger language plpgsql set search_path = ''
-as $
+as $$
 begin
   if new.requester_id <> old.requester_id or new.addressee_id <> old.addressee_id then
     raise exception 'Friendship participants cannot be changed';
   end if;
   return new;
 end;
-$;
+$$;
 drop trigger if exists prevent_friendship_identity_change on public.friendships;
 create trigger prevent_friendship_identity_change before update on public.friendships
   for each row execute procedure public.prevent_friendship_identity_change();
