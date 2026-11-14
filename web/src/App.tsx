@@ -227,8 +227,8 @@ function App() {
               <h1>{session ? "Your account." : accountMode === "signin" ? "Welcome back." : "Create your account."}</h1>
               <p>{session ? `Signed in as ${session.user.email}.` : "Sign in to keep your BRIX experience together across devices."}</p>
               {!isSupabaseConfigured && <p className="auth-notice" role="status">Supabase setup is pending. The form will become active once the project URL and anon key are configured.</p>}
-              {session && <><div className="account-form"><button className="aqua-button account-submit" type="button" onClick={signOut}>Sign out</button></div><button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button></>}
-              {!session && <>
+              {session && <div className="account-authenticated"><div className="account-form"><button className="aqua-button account-submit" type="button" onClick={signOut}>Sign out</button></div><button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button></div>}
+              {!session && <div className="account-unauthenticated">
               <div className="account-tabs"><button className={accountMode === "signin" ? "active" : ""} onClick={() => { setAccountMode("signin"); setAuthNotice(""); }}>Sign in</button><button className={accountMode === "signup" ? "active" : ""} onClick={() => { setAccountMode("signup"); setAuthNotice(""); }}>Create account</button></div>
               <form className="account-form" onSubmit={submitAuth}>
                 {accountMode === "signup" && <label>Display name<input type="text" placeholder="How should BRIX address you?" autoComplete="nickname" value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={40}/></label>}
@@ -239,7 +239,7 @@ function App() {
               {accountMode === "signin" && <button className="back-link" type="button" onClick={sendPasswordReset} disabled={authBusy || !isSupabaseConfigured}>Forgot password?</button>}
               {authNotice && <p className="auth-notice" role="status">{authNotice}</p>}
               <button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button>
-              <p className="account-footnote">Use a unique password. BRIX never asks for your Xbox password.</p></>}
+              <p className="account-footnote">Use a unique password. BRIX never asks for your Xbox password.</p></div>}
             </div>
           </div>}
 
