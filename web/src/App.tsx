@@ -164,9 +164,18 @@ function App() {
       options: { scopes: "openid profile email XboxLive.signin offline_access",
         redirectTo: window.location.origin + window.location.pathname, queryParams: { prompt: "select_account" } }
     });
-    if (error) { setAuthNotice("Microsoft linking could not start. Check that the Azure provider is enabled in Supabase: " + error.message); setAuthBusy(false); return; }
+    if (error) {
+      setAuthNotice("Microsoft linking could not start. Check the Azure provider configuration in Supabase: " + error.message);
+      setAuthBusy(false);
+      changePage("Account");
+      return;
+    }
     if (data?.url) window.location.assign(data.url);
-    else { setAuthNotice("Microsoft authorization did not return a redirect URL."); setAuthBusy(false); }
+    else {
+      setAuthNotice("Microsoft authorization did not return a redirect URL.");
+      setAuthBusy(false);
+      changePage("Account");
+    }
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
