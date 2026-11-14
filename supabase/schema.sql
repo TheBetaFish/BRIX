@@ -7,6 +7,8 @@ create table if not exists public.profiles (
   display_name text not null default '',
   avatar_url text,
   avatar_path text,
+  brix_id text unique,
+  microsoft_connected boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -44,6 +46,10 @@ create table if not exists public.recent_games (
 
 alter table public.profiles add column if not exists avatar_url text;
 alter table public.profiles add column if not exists avatar_path text;
+alter table public.profiles add column if not exists brix_id text;
+alter table public.profiles add column if not exists microsoft_connected boolean not null default false;
+update public.profiles set brix_id = 'BRX-' || upper(substr(md5(id::text), 1, 8)) where brix_id is null;
+create unique index if not exists profiles_brix_id_unique on public.profiles (brix_id);
 
 alter table public.profiles enable row level security;
 alter table public.user_settings enable row level security;
@@ -52,8 +58,9 @@ alter table public.favorite_games enable row level security;
 alter table public.recent_games enable row level security;
 
 drop policy if exists "Users can view their own profile" on public.profiles;
-create policy "Users can view their own profile" on public.profiles
-  for select to authenticated using ((select auth.uid()) = id);
+drop policy if exists "Authenticated users can view public profiles" on public.profiles;
+create policy "Authenticated users can view public profiles" on public.profiles
+  for select to authenticated using (true);
 drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile" on public.profiles
   for update to authenticated using ((select auth.uid()) = id)
@@ -79,6 +86,49 @@ create policy "Users can manage their own recent games" on public.recent_games
   for all to authenticated using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+
+-- BRIX friendships and friend-code discovery.
+create table if not exists public.friendships (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid not null references auth.users(id) on delete cascade,
+  addressee_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'declined')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint friendships_distinct_users check (requester_id <> addressee_id)
+);
+create unique index if not exists friendships_one_pair
+  on public.friendships (least(requester_id, addressee_id), greatest(requester_id, addressee_id));
+alter table public.friendships enable row level security;
+
+drop policy if exists "Users can view their friendship rows" on public.friendships;
+create policy "Users can view their friendship rows" on public.friendships
+  for select to authenticated using ((select auth.uid()) = requester_id or (select auth.uid()) = addressee_id);
+drop policy if exists "Users can send friend requests" on public.friendships;
+create policy "Users can send friend requests" on public.friendships
+  for insert to authenticated with check ((select auth.uid()) = requester_id and requester_id <> addressee_id and status = 'pending');
+drop policy if exists "Recipients can respond to friend requests" on public.friendships;
+create policy "Recipients can respond to friend requests" on public.friendships
+  for update to authenticated using ((select auth.uid()) = addressee_id and status = 'pending')
+  with check ((select auth.uid()) = addressee_id and status in ('accepted', 'declined'));
+drop policy if exists "Participants can remove friendship rows" on public.friendships;
+create policy "Participants can remove friendship rows" on public.friendships
+  for delete to authenticated using ((select auth.uid()) = requester_id or (select auth.uid()) = addressee_id);
+
+create or replace function public.prevent_friendship_identity_change()
+returns trigger language plpgsql set search_path = ''
+as $
+begin
+  if new.requester_id <> old.requester_id or new.addressee_id <> old.addressee_id then
+    raise exception 'Friendship participants cannot be changed';
+  end if;
+  return new;
+end;
+$;
+drop trigger if exists prevent_friendship_identity_change on public.friendships;
+create trigger prevent_friendship_identity_change before update on public.friendships
+  for each row execute procedure public.prevent_friendship_identity_change();
+
 -- Create a profile and default settings automatically after a user registers.
 create or replace function public.handle_new_brix_user()
 returns trigger
@@ -87,8 +137,8 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data ->> 'display_name', ''))
+  insert into public.profiles (id, display_name, brix_id)
+  values (new.id, coalesce(new.raw_user_meta_data ->> 'display_name', ''), 'BRX-' || upper(substr(md5(new.id::text), 1, 8)))
   on conflict (id) do nothing;
 
   insert into public.user_settings (user_id)
