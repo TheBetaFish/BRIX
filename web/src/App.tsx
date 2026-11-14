@@ -159,23 +159,28 @@ function App() {
   async function connectMicrosoft() {
     if (!supabase || !session) { setAuthNotice("Sign in to BRIX before linking a Microsoft account."); changePage("Account"); return; }
     setAuthBusy(true); setAuthNotice("");
-    const { data, error } = await supabase.auth.linkIdentity({
-      provider: "azure",
-      options: { scopes: "openid profile email XboxLive.signin offline_access",
-        redirectTo: window.location.origin + window.location.pathname, queryParams: { prompt: "select_account" } }
-    });
-    if (error) {
-      setAuthNotice("Microsoft linking could not start. Check the Azure provider configuration in Supabase: " + error.message);
-      setAuthBusy(false);
-      changePage("Account");
-      return;
+    try {
+      const { data, error } = await supabase.auth.linkIdentity({
+        provider: "azure",
+        options: { scopes: "openid profile email XboxLive.signin offline_access",
+          redirectTo: window.location.origin + window.location.pathname, queryParams: { prompt: "select_account" } }
+      });
+      if (error) {
+        setAuthNotice("Microsoft linking failed: " + error.message);
+        setAuthBusy(false);
+        changePage("Account");
+        return;
+      }
+      if (data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+      setAuthNotice("Supabase did not return a Microsoft sign-in URL. Check that Azure is enabled in Supabase.");
+    } catch (error) {
+      setAuthNotice("Microsoft linking request failed: " + (error instanceof Error ? error.message : String(error)));
     }
-    if (data?.url) window.location.assign(data.url);
-    else {
-      setAuthNotice("Microsoft authorization did not return a redirect URL.");
-      setAuthBusy(false);
-      changePage("Account");
-    }
+    setAuthBusy(false);
+    changePage("Account");
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -447,7 +452,7 @@ function App() {
               <p>{session ? `Signed in as ${session.user.email}.` : "Sign in to keep your BRIX experience together across devices."}</p>
               {!isSupabaseConfigured && <p className="auth-notice" role="status">Supabase setup is pending. The form will become active once the project URL and anon key are configured.</p>}
               {session && <div className="account-authenticated">
-                <div className="platform-settings-card"><div><strong>Linked platforms</strong><small>Connect external accounts to your BRIX profile.</small></div><div className="platform-row"><span className="platform-dot microsoft-dot"/> Microsoft / Xbox <span className="platform-state">{microsoftConnected ? "Linked" : "Not linked"}</span></div>{!microsoftConnected && <button className="aqua-button" type="button" onClick={connectMicrosoft} disabled={authBusy}>{authBusy ? "Opening Microsoft…" : "Connect Microsoft account"}</button>}<small>Microsoft linking requires the Azure provider to be enabled in Supabase. This links your identity; Xbox Cloud Gaming streaming is a separate integration.</small></div><div className="profile-card">
+                <div className="platform-settings-card"><div><strong>Linked platforms</strong><small>Connect external accounts to your BRIX profile.</small></div><div className="platform-row"><span className="platform-dot microsoft-dot"/> Microsoft / Xbox <span className="platform-state">{microsoftConnected ? "Linked" : "Not linked"}</span></div>{!microsoftConnected && <button className="aqua-button" type="button" onClick={connectMicrosoft} disabled={authBusy}>{authBusy ? "Opening Microsoft…" : "Connect Microsoft account"}</button>}{authNotice && <p className="auth-notice" role="status">{authNotice}</p>}<small>Microsoft linking requires the Azure provider to be enabled in Supabase. This links your identity; Xbox Cloud Gaming streaming is a separate integration.</small></div><div className="profile-card">
                   <div className="profile-avatar-large">{avatarUrl ? <img src={avatarUrl} alt="Your profile picture" /> : <span>{(profileName || session.user.email || "A").slice(0, 1).toUpperCase()}</span>}</div>
                   <div className="profile-avatar-actions">
                     <button className="aqua-button" type="button" onClick={() => avatarInput.current?.click()} disabled={profileBusy}>{profileBusy ? "Please wait…" : avatarUrl ? "Change picture" : "Upload picture"}</button>
