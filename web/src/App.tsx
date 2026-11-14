@@ -239,7 +239,7 @@ function App() {
               {accountMode === "signin" && <button className="back-link" type="button" onClick={sendPasswordReset} disabled={authBusy || !isSupabaseConfigured}>Forgot password?</button>}
               {authNotice && <p className="auth-notice" role="status">{authNotice}</p>}
               <button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button>
-              <p className="account-footnote">Use a unique password. BRIX never asks for your Xbox password.</p></>
+              <p className="account-footnote">Use a unique password. BRIX never asks for your Xbox password.</p></>}
             </div>
           </div>}
 
