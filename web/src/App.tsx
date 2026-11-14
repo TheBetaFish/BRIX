@@ -1,4 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { supabase, isSupabaseConfigured } from "./lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 import {
   Home, Cloud, Gamepad2, Settings, Search, PanelLeftClose, PanelLeftOpen,
   Play, Clock3, ChevronRight, MoreHorizontal, Star,
@@ -26,8 +29,65 @@ const navItems = [
 function App() {
   const [page, setPage] = useState<Page>("Home");
   const [showWelcome, setShowWelcome] = useState(() => localStorage.getItem("brix-entry-choice") !== "guest");
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [accountMode, setAccountMode] = useState<"signin" | "signup">("signin");
   const [authNotice, setAuthNotice] = useState("");
+
+  useEffect(() => {
+    if (!supabase) { setAuthLoading(false); return; }
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) setAuthNotice(error.message);
+      setSession(data.session);
+      if (data.session) setShowWelcome(false);
+      else setShowWelcome(localStorage.getItem("brix-entry-choice") !== "guest");
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      if (nextSession) { setShowWelcome(false); localStorage.removeItem("brix-entry-choice"); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) { setAuthNotice("Supabase is not configured yet. Add the BRIX project URL and anon key to the deployment environment."); return; }
+    setAuthBusy(true); setAuthNotice("");
+    try {
+      if (accountMode === "signup") {
+        const { data, error } = await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword, options: { data: { display_name: displayName.trim() } } });
+        if (error) throw error;
+        if (data.session) { setAuthNotice("Account created. You are now signed in."); setPage("Home"); }
+        else setAuthNotice("Account created. Check your email for a confirmation link, then return here to sign in.");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+        if (error) throw error;
+        setAuthNotice("Signed in successfully."); setPage("Home");
+      }
+    } catch (error) { setAuthNotice(error instanceof Error ? error.message : "Authentication failed. Please try again."); }
+    finally { setAuthBusy(false); }
+  }
+
+  async function sendPasswordReset() {
+    if (!supabase) { setAuthNotice("Supabase is not configured yet."); return; }
+    if (!authEmail.trim()) { setAuthNotice("Enter your email address first."); return; }
+    setAuthBusy(true); setAuthNotice("");
+    const { error } = await supabase.auth.resetPasswordForEmail(authEmail.trim(), { redirectTo: window.location.origin + window.location.pathname });
+    setAuthNotice(error ? error.message : "If an account exists for that email, a password reset link will be sent.");
+    setAuthBusy(false);
+  }
+
+  async function signOut() {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) setAuthNotice(error.message);
+    else { setPage("Home"); setAuthNotice("You have signed out."); }
+  }
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
   const [games, setGames] = useState<Game[]>(initialGames);
@@ -127,7 +187,7 @@ function App() {
       <section className="workspace">
         <header className="toolbar">
           <div className="toolbar-title"><Gamepad2 size={18}/> <span>BRIX</span><ChevronRight size={13}/><span>{pageTitle}</span></div>
-          <div className="toolbar-actions"><button className="account-button" onClick={() => changePage("Account")}><span className="account-avatar">?</span> Account</button><div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div></div>
+          <div className="toolbar-actions"><button className="account-button" onClick={() => changePage("Account")}><span className="account-avatar">{session?.user.user_metadata?.display_name?.slice(0, 1)?.toUpperCase() ?? session?.user.email?.slice(0, 1)?.toUpperCase() ?? "?"}</span> {session?.user.user_metadata?.display_name ?? (session ? "My account" : "Account")}</button><div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div></div>
         </header>
 
         <div className="page-content">
@@ -164,18 +224,22 @@ function App() {
           {page === "Account" && <div className="account-screen">
             <div className="account-panel">
               <div className="account-brand"><div className="brand-mark">B</div><span>BRIX ACCOUNT</span></div>
-              <h1>{accountMode === "signin" ? "Welcome back." : "Create your account."}</h1>
-              <p>Sign in to keep your BRIX experience together across devices.</p>
+              <h1>{session ? "Your account." : accountMode === "signin" ? "Welcome back." : "Create your account."}</h1>
+              <p>{session ? `Signed in as ${session.user.email}.` : "Sign in to keep your BRIX experience together across devices."}</p>
+              {!isSupabaseConfigured && <p className="auth-notice" role="status">Supabase setup is pending. The form will become active once the project URL and anon key are configured.</p>}
+              {session && <><div className="account-form"><button className="aqua-button account-submit" type="button" onClick={signOut}>Sign out</button></div><button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button></>}
+              {!session && <>
               <div className="account-tabs"><button className={accountMode === "signin" ? "active" : ""} onClick={() => { setAccountMode("signin"); setAuthNotice(""); }}>Sign in</button><button className={accountMode === "signup" ? "active" : ""} onClick={() => { setAccountMode("signup"); setAuthNotice(""); }}>Create account</button></div>
-              <form className="account-form" onSubmit={e => { e.preventDefault(); setAuthNotice("Account sign-in is not connected yet. Your details have not been submitted or saved."); }}>
-                {accountMode === "signup" && <label>Display name<input type="text" placeholder="How should BRIX address you?" autoComplete="nickname"/></label>}
-                <label>Email address<input type="email" placeholder="you@example.com" autoComplete="email" required/></label>
-                <label>Password<input type="password" placeholder="Enter your password" autoComplete={accountMode === "signin" ? "current-password" : "new-password"} required minLength={8}/></label>
-                <button className="aqua-button primary account-submit" type="submit">{accountMode === "signin" ? "Sign in" : "Create account"}</button>
+              <form className="account-form" onSubmit={submitAuth}>
+                {accountMode === "signup" && <label>Display name<input type="text" placeholder="How should BRIX address you?" autoComplete="nickname" value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={40}/></label>}
+                <label>Email address<input type="email" placeholder="you@example.com" autoComplete="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required/></label>
+                <label>Password<input type="password" placeholder="Enter your password" autoComplete={accountMode === "signin" ? "current-password" : "new-password"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={8}/></label>
+                <button className="aqua-button primary account-submit" type="submit" disabled={authBusy || authLoading || !isSupabaseConfigured}>{authBusy ? "Please wait…" : accountMode === "signin" ? "Sign in" : "Create account"}</button>
               </form>
+              {accountMode === "signin" && <button className="back-link" type="button" onClick={sendPasswordReset} disabled={authBusy || !isSupabaseConfigured}>Forgot password?</button>}
               {authNotice && <p className="auth-notice" role="status">{authNotice}</p>}
               <button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button>
-              <p className="account-footnote">Account authentication is not connected yet. This screen is a UI preview; no credentials are transmitted or stored.</p>
+              <p className="account-footnote">Use a unique password. BRIX never asks for your Xbox password.</p></>
             </div>
           </div>}
 
@@ -194,7 +258,7 @@ function App() {
       </section>
 
 
-      {showWelcome && <div className="welcome-scrim"><section className="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      {showWelcome && !authLoading && !session && <div className="welcome-scrim"><section className="welcome-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
         <div className="welcome-brand"><div className="brand-mark">B</div><span>BRIX</span></div>
         <div className="eyebrow">YOUR GAMES. YOUR SPACE.</div>
         <h1 id="welcome-title">Welcome to BRIX.</h1>
