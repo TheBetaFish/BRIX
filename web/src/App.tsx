@@ -56,18 +56,42 @@ function App() {
 
   useEffect(() => {
     if (!supabase) { setAuthLoading(false); return; }
-    supabase.auth.getSession().then(({ data, error }) => {
+    let active = true;
+    supabase.auth.getSession().then(async ({ data, error }) => {
       if (error) setAuthNotice(error.message);
-      setSession(data.session);
-      if (data.session) setShowWelcome(false);
+      let nextSession = data.session;
+      // Fetch the authoritative user record so newly linked identities are reflected
+      // even when the locally cached session still contains an older identities array.
+      if (nextSession) {
+        const { data: userData, error: userError } = await supabase!.auth.getUser();
+        if (userError) setAuthNotice("Could not refresh linked accounts: " + userError.message);
+        if (userData.user && userData.user.id === nextSession.user.id) {
+          nextSession = { ...nextSession, user: userData.user };
+        }
+      }
+      if (!active) return;
+      setSession(nextSession);
+      if (nextSession) setShowWelcome(false);
       else setShowWelcome(localStorage.getItem("brix-entry-choice") !== "guest");
       setAuthLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       if (nextSession) { setShowWelcome(false); localStorage.removeItem("brix-entry-choice"); }
+      // Supabase can emit the auth event before its refreshed user identity list is
+      // available in the local session. Read it just after the auth callback returns.
+      if (nextSession && (event === "SIGNED_IN" || event === "USER_UPDATED")) {
+        window.setTimeout(async () => {
+          const { data: userData } = await supabase!.auth.getUser();
+          if (userData.user) {
+            setSession(current => current?.user.id === userData.user!.id
+              ? { ...current, user: userData.user! }
+              : current);
+          }
+        }, 0);
+      }
     });
-    return () => subscription.unsubscribe();
+    return () => { active = false; subscription.unsubscribe(); };
   }, []);
 
   useEffect(() => {
