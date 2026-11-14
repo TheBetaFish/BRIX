@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, FormEvent } from "react";
 import { supabase, isSupabaseConfigured } from "./lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 import {
@@ -37,6 +37,12 @@ function App() {
   const [displayName, setDisplayName] = useState("");
   const [accountMode, setAccountMode] = useState<"signin" | "signup">("signin");
   const [authNotice, setAuthNotice] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarPath, setAvatarPath] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileNotice, setProfileNotice] = useState("");
+  const avatarInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!supabase) { setAuthLoading(false); return; }
@@ -53,6 +59,105 @@ function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !session?.user.id) {
+      setProfileName("");
+      setAvatarUrl("");
+      setAvatarPath("");
+      return;
+    }
+    let cancelled = false;
+    async function loadProfile() {
+      const { data, error } = await supabase!
+        .from("profiles")
+        .select("display_name, avatar_url, avatar_path")
+        .eq("id", session!.user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        setProfileNotice("Profile details could not be loaded. Check that the latest BRIX database schema has been applied.");
+        setProfileName(session!.user.user_metadata?.display_name ?? "");
+        return;
+      }
+      setProfileName(data?.display_name || session!.user.user_metadata?.display_name || "");
+      setAvatarUrl(data?.avatar_url ?? "");
+      setAvatarPath(data?.avatar_path ?? "");
+    }
+    void loadProfile();
+    return () => { cancelled = true; };
+  }, [session?.user.id]);
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !session) return;
+    const cleanName = profileName.trim();
+    if (!cleanName) { setProfileNotice("Enter a display name."); return; }
+    setProfileBusy(true); setProfileNotice("");
+    const { error } = await supabase.from("profiles")
+      .update({ display_name: cleanName, updated_at: new Date().toISOString() })
+      .eq("id", session.user.id);
+    if (!error) {
+      const { error: metadataError } = await supabase.auth.updateUser({ data: { display_name: cleanName } });
+      if (metadataError) setProfileNotice("Your profile was saved, but the account display name could not be refreshed: " + metadataError.message);
+      else setProfileNotice("Profile saved.");
+    } else setProfileNotice("Could not save profile: " + error.message);
+    setProfileBusy(false);
+  }
+
+  async function uploadAvatar(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !supabase || !session) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setProfileNotice("Choose a PNG, JPEG, or WebP image.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setProfileNotice("Profile pictures must be 2 MB or smaller.");
+      return;
+    }
+    setProfileBusy(true); setProfileNotice("");
+    const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/webp" ? "webp" : "png";
+    const path = session.user.id + "/" + crypto.randomUUID() + "." + extension;
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+      contentType: file.type, cacheControl: "3600", upsert: false
+    });
+    if (uploadError) {
+      setProfileNotice("Avatar upload failed: " + uploadError.message);
+      setProfileBusy(false);
+      return;
+    }
+    const { data: publicData } = supabase.storage.from("avatars").getPublicUrl(path);
+    const { error: profileError } = await supabase.from("profiles")
+      .update({ avatar_url: publicData.publicUrl, avatar_path: path, updated_at: new Date().toISOString() })
+      .eq("id", session.user.id);
+    if (profileError) {
+      await supabase.storage.from("avatars").remove([path]);
+      setProfileNotice("Image uploaded, but the profile could not be updated: " + profileError.message);
+    } else {
+      if (avatarPath) await supabase.storage.from("avatars").remove([avatarPath]);
+      setAvatarUrl(publicData.publicUrl);
+      setAvatarPath(path);
+      setProfileNotice("Profile picture updated.");
+    }
+    setProfileBusy(false);
+  }
+
+  async function removeAvatar() {
+    if (!supabase || !session || !avatarPath) return;
+    setProfileBusy(true); setProfileNotice("");
+    const { error } = await supabase.from("profiles")
+      .update({ avatar_url: null, avatar_path: null, updated_at: new Date().toISOString() })
+      .eq("id", session.user.id);
+    if (error) setProfileNotice("Could not remove profile picture: " + error.message);
+    else {
+      await supabase.storage.from("avatars").remove([avatarPath]);
+      setAvatarUrl(""); setAvatarPath("");
+      setProfileNotice("Profile picture removed.");
+    }
+    setProfileBusy(false);
+  }
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -187,7 +292,7 @@ function App() {
       <section className="workspace">
         <header className="toolbar">
           <div className="toolbar-title"><Gamepad2 size={18}/> <span>BRIX</span><ChevronRight size={13}/><span>{pageTitle}</span></div>
-          <div className="toolbar-actions"><button className="account-button" onClick={() => changePage("Account")}><span className="account-avatar">{session?.user.user_metadata?.display_name?.slice(0, 1)?.toUpperCase() ?? session?.user.email?.slice(0, 1)?.toUpperCase() ?? "?"}</span> {session?.user.user_metadata?.display_name ?? (session ? "My account" : "Account")}</button><div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div></div>
+          <div className="toolbar-actions"><button className="account-button" onClick={() => changePage("Account")}><span className="account-avatar">{avatarUrl ? <img src={avatarUrl} alt="" /> : (profileName || session?.user.email || "A").slice(0, 1).toUpperCase()}</span> {profileName || (session ? "My account" : "Account")}</button><div className="toolbar-status"><span className="status-light pending-light"/> Xbox streaming not connected</div></div>
         </header>
 
         <div className="page-content">
@@ -227,7 +332,25 @@ function App() {
               <h1>{session ? "Your account." : accountMode === "signin" ? "Welcome back." : "Create your account."}</h1>
               <p>{session ? `Signed in as ${session.user.email}.` : "Sign in to keep your BRIX experience together across devices."}</p>
               {!isSupabaseConfigured && <p className="auth-notice" role="status">Supabase setup is pending. The form will become active once the project URL and anon key are configured.</p>}
-              {session && <div className="account-authenticated"><div className="account-form"><button className="aqua-button account-submit" type="button" onClick={signOut}>Sign out</button></div><button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button></div>}
+              {session && <div className="account-authenticated">
+                <div className="profile-card">
+                  <div className="profile-avatar-large">{avatarUrl ? <img src={avatarUrl} alt="Your profile picture" /> : <span>{(profileName || session.user.email || "A").slice(0, 1).toUpperCase()}</span>}</div>
+                  <div className="profile-avatar-actions">
+                    <button className="aqua-button" type="button" onClick={() => avatarInput.current?.click()} disabled={profileBusy}>{profileBusy ? "Please wait…" : avatarUrl ? "Change picture" : "Upload picture"}</button>
+                    {avatarUrl && <button className="profile-remove" type="button" onClick={removeAvatar} disabled={profileBusy}>Remove</button>}
+                    <small>PNG, JPEG, or WebP · 2 MB maximum</small>
+                    <input ref={avatarInput} className="visually-hidden-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadAvatar} />
+                  </div>
+                </div>
+                <form className="account-form profile-edit-form" onSubmit={saveProfile}>
+                  <label>Display name<input type="text" value={profileName} onChange={e => setProfileName(e.target.value)} maxLength={40} required /></label>
+                  <label>Email address<input type="email" value={session.user.email ?? ""} readOnly /></label>
+                  <button className="aqua-button primary account-submit" type="submit" disabled={profileBusy}>{profileBusy ? "Saving…" : "Save profile"}</button>
+                </form>
+                {profileNotice && <p className="auth-notice" role="status">{profileNotice}</p>}
+                <button className="aqua-button account-submit" type="button" onClick={signOut}>Sign out</button>
+                <button className="back-link" onClick={() => changePage("Home")}><ArrowLeft size={14}/> Back to BRIX</button>
+              </div>}
               {!session && <div className="account-unauthenticated">
               <div className="account-tabs"><button className={accountMode === "signin" ? "active" : ""} onClick={() => { setAccountMode("signin"); setAuthNotice(""); }}>Sign in</button><button className={accountMode === "signup" ? "active" : ""} onClick={() => { setAccountMode("signup"); setAuthNotice(""); }}>Create account</button></div>
               <form className="account-form" onSubmit={submitAuth}>
