@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { supabase, isSupabaseConfigured } from "./lib/supabase";
 import type { Session } from "@supabase/supabase-js";
+import { checkXboxCloudHealth } from "./lib/xbox-cloud";
+import type { XboxCloudConnection } from "./lib/xbox-cloud";
 import {
   Home, Cloud, Gamepad2, Settings, Search, PanelLeftClose, PanelLeftOpen,
   Play, Clock3, ChevronRight, MoreHorizontal, Star,
@@ -326,12 +328,19 @@ function App() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [activeGame, setActiveGame] = useState<Game | null>(null);
+  const [xboxCloudStatus, setXboxCloudStatus] = useState<XboxCloudConnection>({ state: "unconfigured", message: "Xbox Cloud service is not configured." });
   const [detailsGame, setDetailsGame] = useState<Game | null>(null);
   const [context, setContext] = useState<{ game: Game; x: number; y: number } | null>(null);
 
   const xboxGames = useMemo(() => games.filter(g => g.source === "xbox" && g.title.toLowerCase().includes(xboxQuery.toLowerCase())), [games, xboxQuery]);
   const localGames = useMemo(() => games.filter(g => g.source === "local" && g.title.toLowerCase().includes(localQuery.toLowerCase())), [games, localQuery]);
   const recentGames = recent.map(title => games.find(g => g.title === title)).filter((g): g is Game => Boolean(g));
+
+  async function refreshXboxCloudStatus() {
+    setXboxCloudStatus({ state: "checking", message: "Checking the BRIX Xbox Cloud service…" });
+    const result = await checkXboxCloudHealth();
+    setXboxCloudStatus(result);
+  }
 
   function launch(game: Game) {
     setRecent(current => [game.title, ...current.filter(title => title !== game.title)].slice(0, 8));
@@ -521,11 +530,11 @@ function App() {
               <section className="aqua-window"><div className="window-titlebar"><span>Appearance</span></div><div className="window-content"><h2>Interface theme</h2><p className="setting-description">Choose the visual style used throughout BRIX.</p><div className="theme-cards">
                 {([["light", "Aqua Light", "Bright glass and classic Aqua gloss", Sun], ["dark", "Dark Aero", "PS3-inspired dark glass and blue light", Moon], ["metallic", "Metallic", "Longhorn Slate-inspired metal and glass", Layers3]] as const).map(([value, label, description, Icon]) => <button key={value} className={`theme-card ${theme === value ? "chosen" : ""}`} onClick={() => setTheme(value)}><span className="theme-preview"><Icon size={23}/></span><strong>{label}</strong><small>{description}</small>{theme === value && <span className="theme-check">ACTIVE</span>}</button>)}
               </div></div></section>
-              <section className="aqua-window"><div className="window-titlebar"><span>Streaming status</span></div><div className="window-content"><h2>Xbox Cloud Gaming is not connected</h2><p className="setting-description">BRIX currently provides the interface and library prototype. Xbox sign-in, stream startup, and controller input have not been implemented yet. No connection settings are available until the streaming client exists.</p></div></section>
+              <section className="aqua-window"><div className="window-titlebar"><span>Xbox Cloud integration</span></div><div className="window-content"><h2>{xboxCloudStatus.state === "online" ? "BRIX service reachable" : "Streaming service not connected"}</h2><p className="setting-description">{xboxCloudStatus.message} Service health is only a connectivity check; Xbox authorization, session allocation, and WebRTC streaming still need the server-side adapter.</p><button className="aqua-button" type="button" onClick={refreshXboxCloudStatus} disabled={xboxCloudStatus.state === "checking"}>{xboxCloudStatus.state === "checking" ? "Checking…" : "Check BRIX service"}</button></div></section>
             </div>
           </>}
 
-          <footer className="page-footer">BRIX is an independent interface project. Xbox sign-in and cloud streaming are not connected yet.</footer>
+          <footer className="page-footer">BRIX is an independent interface project. Xbox Cloud streaming is under development.</footer>
         </div>
       </section>
 
@@ -544,7 +553,7 @@ function App() {
 
       {detailsGame && <div className="modal-scrim" onClick={() => setDetailsGame(null)}><section className="details-modal" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailsGame(null)} aria-label="Close details"><X size={18}/></button><div className={`details-art art-${detailsGame.title.toLowerCase().replaceAll(" ", "-")}`}><Gamepad2 size={58}/></div><div className="details-body"><div className="eyebrow">GAME INFORMATION · {detailsGame.source === "xbox" ? "XBOX CLOUD" : "LOCAL"}</div><h2>{detailsGame.title}</h2><p>{detailsGame.description}</p><div className="details-facts"><span>GENRE<strong>{detailsGame.category}</strong></span><span>LIBRARY<strong>{detailsGame.source === "xbox" ? "Xbox Cloud Gaming" : "Local Library"}</strong></span><span>SCREENSHOTS<strong>Not added</strong></span></div><button className="aqua-button primary" onClick={() => { setDetailsGame(null); launch(detailsGame); }}><Play size={15} fill="currentColor"/> Launch game</button></div></section></div>}
 
-      {activeGame && <div className="player-shell"><header className="player-toolbar"><button className="player-back" onClick={() => setActiveGame(null)}><ArrowLeft size={17}/> Back to BRIX</button><strong>{activeGame.title}</strong><span className="player-connection"><span className="status-light pending-light"/> Waiting for streaming connection</span><button className="player-close" onClick={() => setActiveGame(null)} aria-label="Exit game"><X size={18}/></button></header><div className="player-stage"><div className="player-glow"/><div className="player-message"><div className="player-game-icon"><Gamepad2 size={42}/></div><div className="eyebrow">BRIX GAME SESSION</div><h1>{activeGame.title}</h1><p>The game launch interface is ready. Xbox streaming or a local game runtime still needs to be connected.</p><div className="connection-pill"><Wifi size={14}/> Streaming connection unavailable</div><button className="aqua-button" onClick={() => setActiveGame(null)}>Return to library</button></div></div><footer className="player-footer"><span>BRIX PLAYER</span><span><Maximize2 size={13}/> FULLSCREEN SESSION PREVIEW</span></footer></div>}
+      {activeGame && <div className="player-shell"><header className="player-toolbar"><button className="player-back" onClick={() => setActiveGame(null)}><ArrowLeft size={17}/> Back to BRIX</button><strong>{activeGame.title}</strong><span className="player-connection"><span className="status-light pending-light"/> Waiting for streaming connection</span><button className="player-close" onClick={() => setActiveGame(null)} aria-label="Exit game"><X size={18}/></button></header><div className="player-stage"><div className="player-glow"/><div className="player-message"><div className="player-game-icon"><Gamepad2 size={42}/></div><div className="eyebrow">BRIX GAME SESSION</div><h1>{activeGame.title}</h1><p>The game launch interface is ready. Xbox streaming or a local game runtime still needs to be connected.</p><div className="connection-pill"><Wifi size={14}/> {xboxCloudStatus.state === "online" ? "Service reachable · stream not started" : xboxCloudStatus.state === "checking" ? "Checking service…" : "Streaming connection unavailable"}</div><p>{xboxCloudStatus.message}</p><button className="aqua-button" onClick={refreshXboxCloudStatus} disabled={xboxCloudStatus.state === "checking"}>{xboxCloudStatus.state === "checking" ? "Checking…" : "Check Xbox service"}</button><button className="aqua-button" onClick={() => setActiveGame(null)}>Return to library</button></div></div><footer className="player-footer"><span>BRIX PLAYER</span><span><Maximize2 size={13}/> FULLSCREEN SESSION PREVIEW</span></footer></div>}
     </main>
   );
 }
