@@ -403,8 +403,8 @@ serve(async (req) => {
         const regions = Array.isArray(offering.regions) ? offering.regions : [];
         let offeringLoaded = false;
         for (const region of regions) {
-          const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\\/+$/, "") : "";
-          if (!baseUri || !/^https:\\/\\/[a-z0-9.-]+$/i.test(baseUri)) continue;
+          const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\/+$/, "") : "";
+          if (!baseUri || !/^https:\/\/[a-z0-9.-]+$/i.test(baseUri)) continue;
           lastRegionHost = new URL(baseUri).host;
           const authHeaders = [
             { label: "XBL3.0", value: `XBL3.0 x=${account.user_hash};${token}` },
