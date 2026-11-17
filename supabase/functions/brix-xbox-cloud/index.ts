@@ -84,6 +84,20 @@ async function db(path: string, init: RequestInit = {}) {
   });
 }
 
+async function loginCloudOffering(gssvToken: string, offeringId: "xgpuweb" | "xgpuwebf2p") {
+  const response = await fetch(`https://${offeringId}.gssv-play-prod.xboxlive.com/v2/login/user`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, must-revalidate, no-cache",
+      "x-gssv-client": "XboxComBrowser",
+    },
+    body: JSON.stringify({ token: gssvToken, offeringId }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok && Boolean(payload.gsToken), status: response.status, payload };
+}
+
 function resultPage(message: string) {
   const safe = message.replace(/[<>&"]/g, "");
   return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>BRIX Xbox</title></head><body style="font:16px system-ui;background:#101a2a;color:white;display:grid;min-height:100vh;place-items:center"><main style="max-width:520px;padding:32px;text-align:center"><h1>BRIX Xbox Cloud</h1><p>${safe}</p><a style="color:#8bd5ff" href="https://thebetafish.github.io/BRIX/">Return to BRIX</a></main></body></html>`, {
@@ -294,40 +308,44 @@ serve(async (req) => {
         return json({ error: "Xbox did not authorize the xCloud service token for this account.", code: String(xboxCode) }, 403);
       }
 
-      const cloudLoginResponse = await fetch("https://xgpuweb.gssv-play-prod.xboxlive.com/v2/login/user", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store, must-revalidate, no-cache",
-          "x-gssv-client": "XboxComBrowser",
-        },
-        body: JSON.stringify({ token: gssvXsts.Token, offeringId: "xgpuweb" }),
-      });
-      const cloudLogin = await cloudLoginResponse.json();
-      if (!cloudLoginResponse.ok || !cloudLogin.gsToken) {
-        const serviceCode = cloudLogin.code ?? cloudLogin.errorCode ?? `http_${cloudLoginResponse.status}`;
+      // Xbox exposes free-to-play cloud games (including Fortnite) through a
+      // separate offering from the Game Pass Ultimate catalog.
+      const [gpuLogin, f2pLogin] = await Promise.all([
+        loginCloudOffering(gssvXsts.Token, "xgpuweb"),
+        loginCloudOffering(gssvXsts.Token, "xgpuwebf2p"),
+      ]);
+      const gpu = gpuLogin.payload;
+      const f2p = f2pLogin.payload;
+      if (!gpuLogin.ok && !f2pLogin.ok) {
+        const serviceCode = gpu.code ?? gpu.errorCode ?? f2p.code ?? f2p.errorCode ?? `gpu_http_${gpuLogin.status}_f2p_http_${f2pLogin.status}`;
         return json({
           authenticated: false,
           entitled: false,
-          error: cloudLogin.message || "The xCloud service did not grant an XGPU session token.",
+          error: gpu.message || f2p.message || "Xbox did not grant a cloud gaming token for either offering.",
           code: String(serviceCode),
-          market: cloudLogin.market ?? null,
-        }, cloudLoginResponse.status === 403 ? 403 : 502);
+          market: gpu.market ?? f2p.market ?? null,
+          offeringStatuses: { gamePass: gpuLogin.status, freeToPlay: f2pLogin.status },
+        }, 502);
       }
 
       const nextRefresh = refreshed.refresh_token ?? refreshToken;
-      const regions = cloudLogin.offeringSettings?.regions ?? [];
+      const regions = Array.isArray(gpu.offeringSettings?.regions) ? gpu.offeringSettings.regions : [];
+      const f2pRegions = Array.isArray(f2p.offeringSettings?.regions) ? f2p.offeringSettings.regions : [];
+      const market = gpu.market ?? f2p.market ?? null;
       const accountUpdate = await db(`brix_xbox_accounts?user_id=eq.${user.id}`, {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
         body: JSON.stringify({
           refresh_token_enc: await encrypt(nextRefresh),
           gssv_xsts_token_enc: await encrypt(gssvXsts.Token),
-          gs_token_enc: await encrypt(cloudLogin.gsToken),
-          cloud_offering_id: cloudLogin.offeringId ?? "xgpuweb",
-          cloud_market: cloudLogin.market ?? null,
+          gs_token_enc: gpu.gsToken ? await encrypt(gpu.gsToken) : null,
+          cloud_offering_id: gpu.offeringId ?? "xgpuweb",
+          cloud_market: market,
           cloud_regions: regions,
-          gs_token_expires_at: new Date(Date.now() + Number(cloudLogin.durationInSeconds ?? 3600) * 1000).toISOString(),
+          gs_token_expires_at: gpu.gsToken ? new Date(Date.now() + Number(gpu.durationInSeconds ?? 3600) * 1000).toISOString() : null,
+          f2p_gs_token_enc: f2p.gsToken ? await encrypt(f2p.gsToken) : null,
+          f2p_cloud_regions: f2pRegions,
+          f2p_gs_token_expires_at: f2p.gsToken ? new Date(Date.now() + Number(f2p.durationInSeconds ?? 3600) * 1000).toISOString() : null,
           cloud_authenticated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }),
@@ -336,11 +354,11 @@ serve(async (req) => {
 
       return json({
         authenticated: true,
-        entitled: true,
-        offeringId: cloudLogin.offeringId ?? "xgpuweb",
-        market: cloudLogin.market ?? null,
-        durationInSeconds: cloudLogin.durationInSeconds ?? null,
-        regions: regions.map((region: { name?: string; baseUri?: string; isDefault?: boolean }) => ({
+        entitled: Boolean(gpu.gsToken || f2p.gsToken),
+        offerings: { gamePass: Boolean(gpu.gsToken), freeToPlay: Boolean(f2p.gsToken) },
+        market,
+        durationInSeconds: Math.max(Number(gpu.durationInSeconds ?? 0), Number(f2p.durationInSeconds ?? 0)) || null,
+        regions: [...regions, ...f2pRegions].map((region: { name?: string; baseUri?: string; isDefault?: boolean }) => ({
           name: region.name ?? null,
           isDefault: Boolean(region.isDefault),
         })),
@@ -358,71 +376,80 @@ serve(async (req) => {
     if (!user) return json({ error: "Sign in to BRIX first." }, 401);
 
     try {
-      const accountResult = await db(`brix_xbox_accounts?user_id=eq.${user.id}&select=user_hash,gs_token_enc,cloud_regions,cloud_market,gs_token_expires_at`);
-      if (!accountResult.ok) return json({ error: "Could not read the protected xCloud account record." }, 502);
+      const accountResult = await db(`brix_xbox_accounts?user_id=eq.${user.id}&select=user_hash,gs_token_enc,cloud_regions,cloud_market,gs_token_expires_at,f2p_gs_token_enc,f2p_cloud_regions,f2p_gs_token_expires_at`);
+      if (!accountResult.ok) return json({ error: "Could not read the protected xCloud account record. Apply the BRIX free-to-play catalog SQL update if the new columns are missing." }, 502);
       const rows = await accountResult.json();
       const account = rows[0];
-      if (!account?.gs_token_enc || !account?.user_hash) {
+      if (!account?.user_hash || (!account?.gs_token_enc && !account?.f2p_gs_token_enc)) {
         return json({ error: "Connect Xbox Cloud and check xCloud access before loading your library." }, 409);
       }
-      if (account.gs_token_expires_at && new Date(account.gs_token_expires_at).getTime() <= Date.now()) {
-        return json({ error: "Your xCloud session credential expired. Run Check xCloud access again." }, 401);
-      }
 
-      const gsToken = await decrypt(account.gs_token_enc);
-      const regions = Array.isArray(account.cloud_regions) ? account.cloud_regions : [];
-      if (!regions.length) return json({ error: "Microsoft did not return any xCloud regions for this account." }, 503);
-
-      let titlePayload: Record<string, unknown> | null = null;
-      let selectedRegion: string | null = null;
+      const offerings = [
+        { id: "xgpuweb", label: "Game Pass", tokenEnc: account.gs_token_enc, regions: account.cloud_regions, expiresAt: account.gs_token_expires_at },
+        { id: "xgpuwebf2p", label: "Free-to-play", tokenEnc: account.f2p_gs_token_enc, regions: account.f2p_cloud_regions, expiresAt: account.f2p_gs_token_expires_at },
+      ];
+      const attempts: Array<{ offering: string; region: string | null; status: number; auth: string }> = [];
+      const allTitles: Array<Record<string, unknown>> = [];
+      const successfulRegions: string[] = [];
       let lastStatus = 0;
       let lastRegionHost: string | null = null;
       let lastUpstreamMessage = "";
-      const attempts: Array<{ region: string | null; status: number; auth: string }> = [];
-      for (const region of regions) {
-        const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\/+$/, "") : "";
-        if (!baseUri || !/^https:\/\/[a-z0-9.-]+$/i.test(baseUri)) continue;
-        lastRegionHost = new URL(baseUri).host;
-        // Retry the documented alternate xCloud authorization form after 401.
-        const authHeaders = [
-          { label: "XBL3.0", value: `XBL3.0 x=${account.user_hash};${gsToken}` },
-          { label: "Bearer", value: `Bearer ${gsToken}` },
-        ];
-        for (const auth of authHeaders) {
-          const response = await fetch(`${baseUri}/v2/titles?mr=25`, {
-            headers: {
-              Authorization: auth.value,
-              "x-xbl-contract-version": "1",
-              Accept: "application/json",
-              "Cache-Control": "no-store",
-            },
-          });
-          lastStatus = response.status;
-          attempts.push({ region: region.name ?? null, status: response.status, auth: auth.label });
-          if (response.ok) {
-            const payload = await response.json();
-            if (payload && Array.isArray(payload.results)) {
-              titlePayload = payload;
-              selectedRegion = region.name ?? null;
-              break;
+
+      for (const offering of offerings) {
+        if (!offering.tokenEnc) continue;
+        if (offering.expiresAt && new Date(offering.expiresAt).getTime() <= Date.now()) continue;
+        const token = await decrypt(offering.tokenEnc);
+        const regions = Array.isArray(offering.regions) ? offering.regions : [];
+        let offeringLoaded = false;
+        for (const region of regions) {
+          const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\\/+$/, "") : "";
+          if (!baseUri || !/^https:\\/\\/[a-z0-9.-]+$/i.test(baseUri)) continue;
+          lastRegionHost = new URL(baseUri).host;
+          const authHeaders = [
+            { label: "XBL3.0", value: `XBL3.0 x=${account.user_hash};${token}` },
+            { label: "Bearer", value: `Bearer ${token}` },
+          ];
+          for (const auth of authHeaders) {
+            const response = await fetch(`${baseUri}/v2/titles?mr=25`, {
+              headers: {
+                Authorization: auth.value,
+                "x-xbl-contract-version": "1",
+                Accept: "application/json",
+                "Cache-Control": "no-store",
+              },
+            });
+            lastStatus = response.status;
+            attempts.push({ offering: offering.id, region: region.name ?? null, status: response.status, auth: auth.label });
+            if (response.ok) {
+              const payload = await response.json();
+              if (payload && Array.isArray(payload.results)) {
+                for (const item of payload.results as Array<Record<string, unknown>>) {
+                  const details = (item.details ?? {}) as Record<string, unknown>;
+                  if (!details.hasEntitlement) continue;
+                  allTitles.push({ ...item, offering: offering.label });
+                }
+                successfulRegions.push(`${offering.label}: ${region.name ?? "region"}`);
+                offeringLoaded = true;
+                break;
+              }
+            } else {
+              const responseText = await response.text();
+              try {
+                const parsed = JSON.parse(responseText);
+                lastUpstreamMessage = String(parsed.message ?? parsed.error_description ?? parsed.error ?? parsed.code ?? "").slice(0, 240);
+              } catch {
+                lastUpstreamMessage = responseText.slice(0, 240);
+              }
             }
-          } else {
-            const responseText = await response.text();
-            try {
-              const parsed = JSON.parse(responseText);
-              lastUpstreamMessage = String(parsed.message ?? parsed.error_description ?? parsed.error ?? parsed.code ?? "").slice(0, 240);
-            } catch {
-              lastUpstreamMessage = responseText.slice(0, 240);
-            }
+            if (response.status !== 401) break;
           }
-          if (response.status !== 401) break;
+          if (offeringLoaded) break;
         }
-        if (titlePayload) break;
       }
 
-      if (!titlePayload) {
+      if (!successfulRegions.length) {
         return json({
-          error: "The xCloud title service rejected or could not process the catalog request.",
+          error: "The xCloud title service rejected or could not process either catalog request. Run Check xCloud access again.",
           upstreamStatus: lastStatus || null,
           upstreamHost: lastRegionHost,
           upstreamMessage: lastUpstreamMessage || null,
@@ -430,28 +457,29 @@ serve(async (req) => {
         }, 502);
       }
 
-      const titles = (titlePayload.results as Array<Record<string, unknown>>)
-        .filter(item => {
-          const details = item.details as Record<string, unknown> | undefined;
-          return Boolean(details?.hasEntitlement);
-        })
-        .map(item => {
-          const details = (item.details ?? {}) as Record<string, unknown>;
-          return {
-            titleId: item.titleId ?? null,
-            productId: details.productId ?? null,
-            title: details.name ?? "Xbox Cloud Game",
-            description: details.description ?? "",
-            supportedInputTypes: details.supportedInputTypes ?? [],
-          };
-        })
-        .filter(item => typeof item.titleId === "string" && typeof item.title === "string");
-
+      const uniqueTitles = new Map<string, Record<string, unknown>>();
+      for (const item of allTitles) {
+        const details = (item.details ?? {}) as Record<string, unknown>;
+        const titleId = item.titleId;
+        if (typeof titleId !== "string") continue;
+        const mapped = {
+          titleId,
+          productId: details.productId ?? null,
+          title: details.name ?? titleId,
+          description: details.description ?? "",
+          supportedInputTypes: details.supportedInputTypes ?? [],
+          offering: item.offering,
+        };
+        if (!uniqueTitles.has(titleId)) uniqueTitles.set(titleId, mapped);
+        else if (item.offering === "Free-to-play") uniqueTitles.set(titleId, mapped);
+      }
+      const titles = [...uniqueTitles.values()];
       return json({
         market: account.cloud_market ?? null,
-        region: selectedRegion,
+        region: successfulRegions.join(" · "),
         count: titles.length,
         titles,
+        catalogSources: successfulRegions,
       });
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "Could not load the xCloud library." }, 500);
