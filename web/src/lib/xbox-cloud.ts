@@ -18,6 +18,7 @@ export type XboxCloudConnection =
   | { state: "offline"; message: string };
 
 const configuredBaseUrl = (import.meta.env.VITE_XBOX_CLOUD_API_URL as string | undefined)?.trim().replace(/\/+$/, "");
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 export function isXboxCloudConfigured(): boolean {
   return Boolean(configuredBaseUrl);
@@ -31,7 +32,10 @@ export async function checkXboxCloudHealth(): Promise<XboxCloudConnection> {
   try {
     const response = await fetch(`${configuredBaseUrl}/health`, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...(supabaseAnonKey ? { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` } : {}),
+      },
       credentials: "include",
       cache: "no-store",
     });
