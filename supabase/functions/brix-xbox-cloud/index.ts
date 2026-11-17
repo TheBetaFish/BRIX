@@ -400,7 +400,11 @@ serve(async (req) => {
         if (!offering.tokenEnc) continue;
         if (offering.expiresAt && new Date(offering.expiresAt).getTime() <= Date.now()) continue;
         const token = await decrypt(offering.tokenEnc);
-        const regions = Array.isArray(offering.regions) ? offering.regions : [];
+        const regions = Array.isArray(offering.regions) ? [...offering.regions] : [];
+        // Prefer the Xbox-marked default datacenter instead of the first array entry.
+        regions.sort((left: { isDefault?: boolean }, right: { isDefault?: boolean }) =>
+          Number(Boolean(right?.isDefault)) - Number(Boolean(left?.isDefault))
+        );
         let offeringLoaded = false;
         for (const region of regions) {
           const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\/+$/, "") : "";
