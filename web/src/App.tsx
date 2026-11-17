@@ -409,7 +409,7 @@ function App() {
         cache: "no-store",
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "The Xbox Cloud library could not be loaded.");
+      if (!response.ok) throw new Error(`${result.error || "The Xbox Cloud library could not be loaded."}${result.upstreamStatus ? ` (Xbox service HTTP ${result.upstreamStatus})` : ""}`);
       const cloudGames: Game[] = (result.titles ?? []).map((title: { titleId: string; productId?: string; title: string; description?: string }) => ({
         title: title.title,
         category: "Xbox Cloud",
