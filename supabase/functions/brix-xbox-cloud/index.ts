@@ -94,8 +94,41 @@ async function loginCloudOffering(gssvToken: string, offeringId: "xgpuweb" | "xg
     },
     body: JSON.stringify({ token: gssvToken, offeringId }),
   });
-  const payload = await response.json().catch(() => ({}));
-  return { ok: response.ok && Boolean(payload.gsToken), status: response.status, code: typeof payload.code === "string" ? payload.code : null, message: typeof payload.message === "string" ? payload.message.slice(0, 240) : null, payload };
+  const responseText = await response.text().catch(() => "");
+  let payload: Record<string, any> = {};
+  try {
+    const parsed = JSON.parse(responseText);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed;
+  } catch {
+    // Some upstream failures return plain text instead of JSON.
+  }
+
+  const readErrorField = (keys: string[]): string | null => {
+    const sources = [payload, payload.error, payload.details, payload.data]
+      .filter((value) => value && typeof value === "object" && !Array.isArray(value));
+    for (const source of sources) {
+      for (const key of keys) {
+        const value = source[key];
+        if (typeof value === "string" && value.trim()) return value.trim().slice(0, 240);
+        if (typeof value === "number") return String(value);
+      }
+    }
+    return null;
+  };
+
+  const code = readErrorField(["code", "errorCode", "error_code", "statusCode", "status"]);
+  const message = readErrorField(["message", "error_description", "description", "detail", "reason", "title"])
+    ?? (!response.ok && responseText.trim() && !responseText.trim().startsWith("{")
+      ? responseText.trim().slice(0, 240)
+      : null);
+
+  return {
+    ok: response.ok && Boolean(payload.gsToken),
+    status: response.status,
+    code,
+    message,
+    payload,
+  };
 }
 
 function resultPage(message: string) {
