@@ -380,8 +380,8 @@ serve(async (req) => {
       let lastUpstreamMessage = "";
       const attempts: Array<{ region: string | null; status: number; auth: string }> = [];
       for (const region of regions) {
-        const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\\/+$/, "") : "";
-        if (!baseUri || !/^https:\\/\\/[a-z0-9.-]+$/i.test(baseUri)) continue;
+        const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\/+$/, "") : "";
+        if (!baseUri || !/^https:\/\/[a-z0-9.-]+$/i.test(baseUri)) continue;
         lastRegionHost = new URL(baseUri).host;
         // Retry the documented alternate xCloud authorization form after 401.
         const authHeaders = [
