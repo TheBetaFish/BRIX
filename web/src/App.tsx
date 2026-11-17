@@ -331,6 +331,8 @@ function App() {
   const [xboxCloudStatus, setXboxCloudStatus] = useState<XboxCloudConnection>({ state: "unconfigured", message: "Xbox Cloud service is not configured." });
   const [xboxAccount, setXboxAccount] = useState<{ connected: boolean; xuid?: string; gamertag?: string }>({ connected: false });
   const [xboxAuthBusy, setXboxAuthBusy] = useState(false);
+  const [xcloudAuthBusy, setXcloudAuthBusy] = useState(false);
+  const [xcloudAuthResult, setXcloudAuthResult] = useState<{ authenticated?: boolean; entitled?: boolean; market?: string | null; regions?: { name: string | null; isDefault: boolean }[]; error?: string; code?: string } | null>(null);
   const xboxApiUrl = (import.meta.env.VITE_XBOX_CLOUD_API_URL as string | undefined)?.trim().replace(/\/+$/, "");
 
   const [detailsGame, setDetailsGame] = useState<Game | null>(null);
@@ -363,6 +365,30 @@ function App() {
       const account = await response.json();
       setXboxAccount({ connected: Boolean(account.connected), xuid: account.xuid, gamertag: account.gamertag });
     } catch { setXboxAccount({ connected: false }); }
+  }
+
+  async function authenticateXcloud() {
+    if (!supabase || !session || !xboxApiUrl) {
+      setAuthNotice("Sign in to BRIX and connect your Xbox account first.");
+      return;
+    }
+    setXcloudAuthBusy(true);
+    setXcloudAuthResult(null);
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) throw new Error("Your BRIX session could not be verified. Sign in again.");
+      const response = await fetch(`${xboxApiUrl}/api/xbox/cloud/authenticate`, {
+        method: "POST",
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${data.session.access_token}` },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.code || "xCloud authentication failed.");
+      setXcloudAuthResult(result);
+    } catch (error) {
+      setXcloudAuthResult({ authenticated: false, entitled: false, error: error instanceof Error ? error.message : "xCloud authentication failed." });
+    } finally {
+      setXcloudAuthBusy(false);
+    }
   }
 
   async function connectXboxCloud() {
@@ -504,6 +530,8 @@ function App() {
                 <div className="platform-row"><span className="platform-dot microsoft-dot"/> Xbox Cloud Gaming <span className="platform-state">{xboxAccount.connected ? "Connected" : "Not connected"}</span></div>
                 <button className="aqua-button" type="button" onClick={connectXboxCloud} disabled={xboxAuthBusy}>{xboxAuthBusy ? "Opening Xbox…" : xboxAccount.connected ? "Reconnect Xbox Cloud" : "Connect Xbox Cloud"}</button>
                 {xboxAccount.connected && <small>Xbox identity verified{xboxAccount.gamertag ? ` · ${xboxAccount.gamertag}` : ""}.</small>}
+                {xboxAccount.connected && <button className="connect-platform-button" type="button" onClick={authenticateXcloud} disabled={xcloudAuthBusy}>{xcloudAuthBusy ? "Checking xCloud access…" : "Check xCloud access"}</button>}
+                {xcloudAuthResult && <small role="status">{xcloudAuthResult.authenticated ? `xCloud authenticated · ${xcloudAuthResult.market || "market unknown"} · ${xcloudAuthResult.regions?.length || 0} regions` : xcloudAuthResult.error || "xCloud authentication failed."}</small>}
 
                 {session && !microsoftConnected && <button className="connect-platform-button" onClick={() => { setAccountsOpen(false); void connectMicrosoft(); }}>Connect Microsoft account</button>}
                 {!session && <button className="connect-platform-button" onClick={() => { setAccountsOpen(false); changePage("Account"); }}>Sign in to BRIX</button>}
