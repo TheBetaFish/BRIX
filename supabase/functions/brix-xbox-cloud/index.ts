@@ -95,7 +95,7 @@ async function loginCloudOffering(gssvToken: string, offeringId: "xgpuweb" | "xg
     body: JSON.stringify({ token: gssvToken, offeringId }),
   });
   const payload = await response.json().catch(() => ({}));
-  return { ok: response.ok && Boolean(payload.gsToken), status: response.status, payload };
+  return { ok: response.ok && Boolean(payload.gsToken), status: response.status, code: typeof payload.code === "string" ? payload.code : null, message: typeof payload.message === "string" ? payload.message.slice(0, 240) : null, payload };
 }
 
 function resultPage(message: string) {
@@ -325,6 +325,10 @@ serve(async (req) => {
           code: String(serviceCode),
           market: gpu.market ?? f2p.market ?? null,
           offeringStatuses: { gamePass: gpuLogin.status, freeToPlay: f2pLogin.status },
+        offeringErrors: {
+          gamePass: gpuLogin.ok ? null : { code: gpuLogin.code, message: gpuLogin.message },
+          freeToPlay: f2pLogin.ok ? null : { code: f2pLogin.code, message: f2pLogin.message },
+        },
         }, 502);
       }
 
