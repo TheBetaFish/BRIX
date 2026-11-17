@@ -409,7 +409,7 @@ function App() {
         cache: "no-store",
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(`${result.error || "The Xbox Cloud library could not be loaded."}${result.upstreamStatus ? ` (Xbox service HTTP ${result.upstreamStatus})` : ""}`);
+      if (!response.ok) { const attempts = Array.isArray(result.attempts) ? result.attempts.map((item: { region?: string | null; status?: number; auth?: string }) => `${item.region || "region"}: HTTP ${item.status} (${item.auth})`).join(", ") : ""; throw new Error(`${result.error || "The Xbox Cloud library could not be loaded."}${result.upstreamStatus ? ` (Xbox service HTTP ${result.upstreamStatus})` : ""}${result.upstreamHost ? ` at ${result.upstreamHost}` : ""}${attempts ? `. Attempts: ${attempts}` : ""}${result.upstreamMessage ? `. Detail: ${result.upstreamMessage}` : ""}`); }
       const cloudGames: Game[] = (result.titles ?? []).map((title: { titleId: string; productId?: string; title: string; description?: string }) => ({
         title: title.title,
         category: "Xbox Cloud",
