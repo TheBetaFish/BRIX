@@ -329,6 +329,10 @@ function App() {
   const [recent, setRecent] = useState<string[]>([]);
   const [activeGame, setActiveGame] = useState<Game | null>(null);
   const [xboxCloudStatus, setXboxCloudStatus] = useState<XboxCloudConnection>({ state: "unconfigured", message: "Xbox Cloud service is not configured." });
+  const [xboxAccount, setXboxAccount] = useState<{ connected: boolean; xuid?: string; gamertag?: string }>({ connected: false });
+  const [xboxAuthBusy, setXboxAuthBusy] = useState(false);
+  const xboxApiUrl = (import.meta.env.VITE_XBOX_CLOUD_API_URL as string | undefined)?.trim().replace(/\/+$/, "");
+
   const [detailsGame, setDetailsGame] = useState<Game | null>(null);
   const [context, setContext] = useState<{ game: Game; x: number; y: number } | null>(null);
 
@@ -345,6 +349,54 @@ function App() {
   useEffect(() => {
     void refreshXboxCloudStatus();
   }, []);
+
+  async function refreshXboxAccount() {
+    if (!supabase || !session || !xboxApiUrl) { setXboxAccount({ connected: false }); return; }
+    const { data } = await supabase.auth.getSession();
+    if (!data.session?.access_token) return;
+    try {
+      const response = await fetch(`${xboxApiUrl}/api/xbox/account`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${data.session.access_token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const account = await response.json();
+      setXboxAccount({ connected: Boolean(account.connected), xuid: account.xuid, gamertag: account.gamertag });
+    } catch { setXboxAccount({ connected: false }); }
+  }
+
+  async function connectXboxCloud() {
+    if (!supabase || !session || !xboxApiUrl) {
+      setAuthNotice("Sign in to BRIX and make sure the Xbox Cloud backend is configured.");
+      return;
+    }
+    setXboxAuthBusy(true);
+    setAuthNotice("");
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) throw new Error("Your BRIX session could not be verified. Sign in again.");
+      const response = await fetch(`${xboxApiUrl}/oauth/start`, {
+        method: "POST",
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${data.session.access_token}` },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.authorizationUrl) throw new Error(result.error || "Xbox authorization could not be started.");
+      window.location.assign(result.authorizationUrl);
+    } catch (error) {
+      setAuthNotice(error instanceof Error ? error.message : "Could not start Xbox authorization.");
+      setXboxAuthBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("xbox_connected") === "1") {
+      setAuthNotice("Xbox account successfully connected.");
+      window.history.replaceState({}, "", window.location.pathname);
+      void refreshXboxAccount();
+    }
+  }, []);
+
+  useEffect(() => { void refreshXboxAccount(); }, [session?.user.id]);
 
   function launch(game: Game) {
     setRecent(current => [game.title, ...current.filter(title => title !== game.title)].slice(0, 8));
@@ -449,6 +501,10 @@ function App() {
                 <div className="dropdown-section-title"><Monitor size={14}/> LINKED PLATFORMS</div>
                 <div className="platform-row"><span className="platform-dot brix-dot"/> BRIX <span className="platform-state">{session ? "Connected" : "Guest"}</span></div>
                 <div className="platform-row"><span className="platform-dot microsoft-dot"/> Microsoft / Xbox <span className="platform-state">{microsoftConnected ? "Linked" : "Not linked"}</span></div>
+                <div className="platform-row"><span className="platform-dot microsoft-dot"/> Xbox Cloud Gaming <span className="platform-state">{xboxAccount.connected ? "Connected" : "Not connected"}</span></div>
+                <button className="aqua-button" type="button" onClick={connectXboxCloud} disabled={xboxAuthBusy}>{xboxAuthBusy ? "Opening Xbox…" : xboxAccount.connected ? "Reconnect Xbox Cloud" : "Connect Xbox Cloud"}</button>
+                {xboxAccount.connected && <small>Xbox identity verified{xboxAccount.gamertag ? ` · ${xboxAccount.gamertag}` : ""}.</small>}
+
                 {session && !microsoftConnected && <button className="connect-platform-button" onClick={() => { setAccountsOpen(false); void connectMicrosoft(); }}>Connect Microsoft account</button>}
                 {!session && <button className="connect-platform-button" onClick={() => { setAccountsOpen(false); changePage("Account"); }}>Sign in to BRIX</button>}
               </div>}
