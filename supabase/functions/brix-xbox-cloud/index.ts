@@ -102,7 +102,7 @@ serve(async (req) => {
     return json({
       service: "brix-xbox-cloud",
       status: "ok",
-      capabilities: ["health", "microsoft-oauth", "xbox-live-auth", "xsts-auth", "gssv-xcloud-auth", "xcloud-entitlement-check", "session-database"],
+      capabilities: ["health", "microsoft-oauth", "xbox-live-auth", "xsts-auth", "gssv-xcloud-auth", "xcloud-entitlement-check", "xcloud-entitled-title-catalog", "session-database"],
       streaming: false,
     });
   }
@@ -347,6 +347,84 @@ serve(async (req) => {
       });
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "xCloud authentication failed." }, 500);
+    }
+  }
+
+
+  // Return only the signed-in user's entitled xCloud titles. Stream credentials
+  // remain server-side; the browser receives catalog metadata only.
+  if (req.method === "GET" && path.endsWith("/api/xbox/cloud/titles")) {
+    const user = await getUser(req);
+    if (!user) return json({ error: "Sign in to BRIX first." }, 401);
+
+    try {
+      const accountResult = await db(`brix_xbox_accounts?user_id=eq.${user.id}&select=user_hash,gs_token_enc,cloud_regions,cloud_market,gs_token_expires_at`);
+      if (!accountResult.ok) return json({ error: "Could not read the protected xCloud account record." }, 502);
+      const rows = await accountResult.json();
+      const account = rows[0];
+      if (!account?.gs_token_enc || !account?.user_hash) {
+        return json({ error: "Connect Xbox Cloud and check xCloud access before loading your library." }, 409);
+      }
+      if (account.gs_token_expires_at && new Date(account.gs_token_expires_at).getTime() <= Date.now()) {
+        return json({ error: "Your xCloud session credential expired. Run Check xCloud access again." }, 401);
+      }
+
+      const gsToken = await decrypt(account.gs_token_enc);
+      const regions = Array.isArray(account.cloud_regions) ? account.cloud_regions : [];
+      if (!regions.length) return json({ error: "Microsoft did not return any xCloud regions for this account." }, 503);
+
+      let titlePayload: Record<string, unknown> | null = null;
+      let selectedRegion: string | null = null;
+      let lastStatus = 0;
+      for (const region of regions) {
+        const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\/+$/, "") : "";
+        if (!baseUri || !/^https:\/\/[a-z0-9.-]+$/i.test(baseUri)) continue;
+        const response = await fetch(`${baseUri}/v2/titles?mr=25`, {
+          headers: {
+            Authorization: `XBL3.0 x=${account.user_hash};${gsToken}`,
+            Accept: "application/json",
+            "Cache-Control": "no-store",
+          },
+        });
+        lastStatus = response.status;
+        if (!response.ok) continue;
+        const payload = await response.json();
+        if (payload && Array.isArray(payload.results)) {
+          titlePayload = payload;
+          selectedRegion = region.name ?? null;
+          break;
+        }
+      }
+
+      if (!titlePayload) {
+        return json({ error: "The xCloud title service could not be reached in the returned regions.", upstreamStatus: lastStatus || null }, 502);
+      }
+
+      const titles = (titlePayload.results as Array<Record<string, unknown>>)
+        .filter(item => {
+          const details = item.details as Record<string, unknown> | undefined;
+          return Boolean(details?.hasEntitlement);
+        })
+        .map(item => {
+          const details = (item.details ?? {}) as Record<string, unknown>;
+          return {
+            titleId: item.titleId ?? null,
+            productId: details.productId ?? null,
+            title: details.name ?? "Xbox Cloud Game",
+            description: details.description ?? "",
+            supportedInputTypes: details.supportedInputTypes ?? [],
+          };
+        })
+        .filter(item => typeof item.titleId === "string" && typeof item.title === "string");
+
+      return json({
+        market: account.cloud_market ?? null,
+        region: selectedRegion,
+        count: titles.length,
+        titles,
+      });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "Could not load the xCloud library." }, 500);
     }
   }
 
