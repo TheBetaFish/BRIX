@@ -13,7 +13,7 @@ import {
 
 type Page = "Home" | "Xbox Cloud Gaming Library" | "Local Library" | "Settings" | "Account";
 type Theme = "light" | "dark" | "metallic";
-type Game = { title: string; category: string; tag?: string; source: "xbox" | "local"; description: string };
+type Game = { title: string; category: string; tag?: string; source: "xbox" | "local"; description: string; cloudTitleId?: string; productId?: string };
 
 const initialGames: Game[] = [
   { title: "Fortnite", category: "Battle Royale", tag: "Featured", source: "xbox", description: "Drop into the island, build, explore, and compete with friends." },
@@ -331,7 +331,7 @@ function App() {
   const [xboxCloudStatus, setXboxCloudStatus] = useState<XboxCloudConnection>({ state: "unconfigured", message: "Xbox Cloud service is not configured." });
   const [xboxAccount, setXboxAccount] = useState<{ connected: boolean; xuid?: string; gamertag?: string }>({ connected: false });
   const [xboxAuthBusy, setXboxAuthBusy] = useState(false);
-  const [xcloudAuthBusy, setXcloudAuthBusy] = useState(false);
+  const [xcloudAuthBusy, setXcloudAuthBusy] = useState(false);\n  const [xcloudCatalogBusy, setXcloudCatalogBusy] = useState(false);\n  const [xcloudCatalogNotice, setXcloudCatalogNotice] = useState("");
   const [xcloudAuthResult, setXcloudAuthResult] = useState<{ authenticated?: boolean; entitled?: boolean; market?: string | null; regions?: { name: string | null; isDefault: boolean }[]; error?: string; code?: string } | null>(null);
   const xboxApiUrl = (import.meta.env.VITE_XBOX_CLOUD_API_URL as string | undefined)?.trim().replace(/\/+$/, "");
 
@@ -388,6 +388,40 @@ function App() {
       setXcloudAuthResult({ authenticated: false, entitled: false, error: error instanceof Error ? error.message : "xCloud authentication failed." });
     } finally {
       setXcloudAuthBusy(false);
+    }
+  }
+
+
+  async function loadXboxCloudCatalog() {
+    if (!supabase || !session || !xboxApiUrl) {
+      setXcloudCatalogNotice("Sign in to BRIX and connect Xbox Cloud first.");
+      return;
+    }
+    setXcloudCatalogBusy(true);
+    setXcloudCatalogNotice("");
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) throw new Error("Your BRIX session could not be verified. Sign in again.");
+      const response = await fetch(`${xboxApiUrl}/api/xbox/cloud/titles`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${data.session.access_token}` },
+        cache: "no-store",
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "The Xbox Cloud library could not be loaded.");
+      const cloudGames: Game[] = (result.titles ?? []).map((title: { titleId: string; productId?: string; title: string; description?: string }) => ({
+        title: title.title,
+        category: "Xbox Cloud",
+        source: "xbox",
+        description: title.description || "Available through your Xbox Cloud Gaming account.",
+        cloudTitleId: title.titleId,
+        productId: title.productId,
+      }));
+      setGames(current => [...current.filter(game => game.source !== "xbox"), ...cloudGames]);
+      setXcloudCatalogNotice(`Loaded ${cloudGames.length} entitled games${result.region ? ` from ${result.region}` : ""}.`);
+    } catch (error) {
+      setXcloudCatalogNotice(error instanceof Error ? error.message : "The Xbox Cloud library could not be loaded.");
+    } finally {
+      setXcloudCatalogBusy(false);
     }
   }
 
@@ -562,7 +596,7 @@ function App() {
           </>}
 
           {page === "Xbox Cloud Gaming Library" && <>
-            <div className="library-toolbar"><div className="library-count">{xboxGames.length} GAMES</div><div className="search-bar"><Search size={16}/><input value={xboxQuery} onChange={e => setXboxQuery(e.target.value)} placeholder="Search Xbox games..." aria-label="Search Xbox Cloud Gaming library"/></div></div>
+            <div className="library-toolbar"><div className="library-count">{xboxGames.length} GAMES</div><button className="aqua-button" type="button" onClick={loadXboxCloudCatalog} disabled={xcloudCatalogBusy}>{xcloudCatalogBusy ? "Loading cloud library…" : "Load my cloud games"}</button><div className="search-bar"><Search size={16}/><input value={xboxQuery} onChange={e => setXboxQuery(e.target.value)} placeholder="Search Xbox games..." aria-label="Search Xbox Cloud Gaming library"/></div></div>{xcloudCatalogNotice && <p className="auth-notice" role="status">{xcloudCatalogNotice}</p>}
             <div className="game-grid">{xboxGames.map(gameCard)}{xboxGames.length === 0 && <div className="empty-state">No Xbox games match that search.</div>}</div>
           </>}
 
