@@ -342,6 +342,10 @@ function App() {
     setXboxCloudStatus(result);
   }
 
+  useEffect(() => {
+    void refreshXboxCloudStatus();
+  }, []);
+
   function launch(game: Game) {
     setRecent(current => [game.title, ...current.filter(title => title !== game.title)].slice(0, 8));
     setActiveGame(game);
