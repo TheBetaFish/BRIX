@@ -331,7 +331,9 @@ function App() {
   const [xboxCloudStatus, setXboxCloudStatus] = useState<XboxCloudConnection>({ state: "unconfigured", message: "Xbox Cloud service is not configured." });
   const [xboxAccount, setXboxAccount] = useState<{ connected: boolean; xuid?: string; gamertag?: string }>({ connected: false });
   const [xboxAuthBusy, setXboxAuthBusy] = useState(false);
-  const [xcloudAuthBusy, setXcloudAuthBusy] = useState(false);\n  const [xcloudCatalogBusy, setXcloudCatalogBusy] = useState(false);\n  const [xcloudCatalogNotice, setXcloudCatalogNotice] = useState("");
+  const [xcloudAuthBusy, setXcloudAuthBusy] = useState(false);
+  const [xcloudCatalogBusy, setXcloudCatalogBusy] = useState(false);
+  const [xcloudCatalogNotice, setXcloudCatalogNotice] = useState("");
   const [xcloudAuthResult, setXcloudAuthResult] = useState<{ authenticated?: boolean; entitled?: boolean; market?: string | null; regions?: { name: string | null; isDefault: boolean }[]; error?: string; code?: string } | null>(null);
   const xboxApiUrl = (import.meta.env.VITE_XBOX_CLOUD_API_URL as string | undefined)?.trim().replace(/\/+$/, "");
 
