@@ -102,7 +102,7 @@ serve(async (req) => {
     return json({
       service: "brix-xbox-cloud",
       status: "ok",
-      capabilities: ["health", "microsoft-oauth", "xbox-live-auth", "xsts-auth", "session-database"],
+      capabilities: ["health", "microsoft-oauth", "xbox-live-auth", "xsts-auth", "gssv-xcloud-auth", "xcloud-entitlement-check", "session-database"],
       streaming: false,
     });
   }
