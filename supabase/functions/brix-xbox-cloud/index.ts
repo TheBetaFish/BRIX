@@ -382,12 +382,27 @@ serve(async (req) => {
         const response = await fetch(`${baseUri}/v2/titles?mr=25`, {
           headers: {
             Authorization: `XBL3.0 x=${account.user_hash};${gsToken}`,
+            "x-xbl-contract-version": "1",
             Accept: "application/json",
             "Cache-Control": "no-store",
           },
         });
         lastStatus = response.status;
-        if (!response.ok) continue;
+        if (!response.ok) {
+          const responseText = await response.text();
+          const wwwAuthenticate = response.headers.get("www-authenticate");
+          const message = (() => {
+            try {
+              const parsed = JSON.parse(responseText);
+              return String(parsed.message ?? parsed.error_description ?? parsed.error ?? parsed.code ?? "").slice(0, 240);
+            } catch {
+              return responseText.slice(0, 240);
+            }
+          })();
+          lastUpstreamMessage = message;
+          lastWwwAuthenticate = wwwAuthenticate ?? "";
+          continue;
+        }
         const payload = await response.json();
         if (payload && Array.isArray(payload.results)) {
           titlePayload = payload;
@@ -397,7 +412,7 @@ serve(async (req) => {
       }
 
       if (!titlePayload) {
-        return json({ error: "The xCloud title service could not be reached in the returned regions.", upstreamStatus: lastStatus || null }, 502);
+        return json({ error: "The xCloud title service rejected or could not process the catalog request.", upstreamStatus: lastStatus || null, upstreamMessage: lastUpstreamMessage || null, wwwAuthenticate: lastWwwAuthenticate || null }, 502);
       }
 
       const titles = (titlePayload.results as Array<Record<string, unknown>>)
