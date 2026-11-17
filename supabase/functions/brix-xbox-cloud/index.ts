@@ -49,6 +49,19 @@ async function encrypt(value: string) {
   return JSON.stringify({ iv: base64url(iv), data: base64url(new Uint8Array(data)) });
 }
 
+
+async function decrypt(value: string) {
+  const parsed = JSON.parse(value) as { iv: string; data: string };
+  const decode = (input: string) => {
+    const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(normalized + "=".repeat((4 - normalized.length % 4) % 4));
+    return Uint8Array.from(binary, c => c.charCodeAt(0));
+  };
+  const key = await crypto.subtle.importKey("raw", encryptionBytes(), "AES-GCM", false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: decode(parsed.iv) }, key, decode(parsed.data));
+  return new TextDecoder().decode(plain);
+}
+
 async function getUser(req: Request) {
   const authorization = req.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return null;
@@ -217,6 +230,123 @@ serve(async (req) => {
       });
     } catch {
       return resultPage("The Xbox connection could not be completed. Return to BRIX and try again.");
+    }
+  }
+
+
+  if (req.method === "POST" && path.endsWith("/api/xbox/cloud/authenticate")) {
+    const user = await getUser(req);
+    if (!user) return json({ error: "Sign in to BRIX first." }, 401);
+    if (!CLIENT_ID || !CLIENT_SECRET || !ENCRYPTION_KEY) {
+      return json({ error: "Xbox authentication secrets are not configured." }, 503);
+    }
+
+    try {
+      const accountResult = await db(`brix_xbox_accounts?user_id=eq.${user.id}&select=refresh_token_enc`);
+      if (!accountResult.ok) return json({ error: "Could not read the protected Xbox account record." }, 502);
+      const accountRows = await accountResult.json();
+      const storedRefresh = accountRows[0]?.refresh_token_enc;
+      if (!storedRefresh) return json({ error: "Reconnect your Microsoft account. BRIX has no stored refresh token." }, 409);
+
+      const refreshToken = await decrypt(storedRefresh);
+      const refreshResponse = await fetch("https://login.microsoftonline.com/consumers/oauth2/v2.0/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          scope: "XboxLive.signin XboxLive.offline_access",
+        }),
+      });
+      const refreshed = await refreshResponse.json();
+      if (!refreshResponse.ok || !refreshed.access_token) {
+        return json({ error: "Microsoft token refresh failed. Reconnect your Xbox account.", code: refreshed.error ?? "refresh_failed" }, 401);
+      }
+
+      const userResponse = await fetch("https://user.auth.xboxlive.com/user/authenticate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-xbl-contract-version": "1" },
+        body: JSON.stringify({
+          RelyingParty: "http://auth.xboxlive.com",
+          TokenType: "JWT",
+          Properties: { AuthMethod: "RPS", SiteName: "user.auth.xboxlive.com", RpsTicket: `d=${refreshed.access_token}` },
+        }),
+      });
+      const xboxUser = await userResponse.json();
+      if (!userResponse.ok || !xboxUser.Token) {
+        return json({ error: "Xbox Live rejected the refreshed Microsoft credential." }, 502);
+      }
+
+      const gssvXstsResponse = await fetch("https://xsts.auth.xboxlive.com/xsts/authorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-xbl-contract-version": "1" },
+        body: JSON.stringify({
+          Properties: { SandboxId: "RETAIL", UserTokens: [xboxUser.Token] },
+          RelyingParty: "http://gssv.xboxlive.com/",
+          TokenType: "JWT",
+        }),
+      });
+      const gssvXsts = await gssvXstsResponse.json();
+      if (!gssvXstsResponse.ok || !gssvXsts.Token) {
+        const xboxCode = gssvXsts.XErr ?? gssvXsts.Identity ?? "gssv_xsts_rejected";
+        return json({ error: "Xbox did not authorize the xCloud service token for this account.", code: String(xboxCode) }, 403);
+      }
+
+      const cloudLoginResponse = await fetch("https://xgpuweb.gssv-play-prod.xboxlive.com/v2/login/user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, must-revalidate, no-cache",
+          "x-gssv-client": "XboxComBrowser",
+        },
+        body: JSON.stringify({ token: gssvXsts.Token, offeringId: "xgpuweb" }),
+      });
+      const cloudLogin = await cloudLoginResponse.json();
+      if (!cloudLoginResponse.ok || !cloudLogin.gsToken) {
+        const serviceCode = cloudLogin.code ?? cloudLogin.errorCode ?? `http_${cloudLoginResponse.status}`;
+        return json({
+          authenticated: false,
+          entitled: false,
+          error: cloudLogin.message || "The xCloud service did not grant an XGPU session token.",
+          code: String(serviceCode),
+          market: cloudLogin.market ?? null,
+        }, cloudLoginResponse.status === 403 ? 403 : 502);
+      }
+
+      const nextRefresh = refreshed.refresh_token ?? refreshToken;
+      const regions = cloudLogin.offeringSettings?.regions ?? [];
+      const accountUpdate = await db(`brix_xbox_accounts?user_id=eq.${user.id}`, {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({
+          refresh_token_enc: await encrypt(nextRefresh),
+          gssv_xsts_token_enc: await encrypt(gssvXsts.Token),
+          gs_token_enc: await encrypt(cloudLogin.gsToken),
+          cloud_offering_id: cloudLogin.offeringId ?? "xgpuweb",
+          cloud_market: cloudLogin.market ?? null,
+          cloud_regions: regions,
+          gs_token_expires_at: new Date(Date.now() + Number(cloudLogin.durationInSeconds ?? 3600) * 1000).toISOString(),
+          cloud_authenticated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!accountUpdate.ok) return json({ error: "xCloud authentication succeeded, but BRIX could not save the encrypted stream credentials. Apply the BRIX cloud-auth SQL update." }, 500);
+
+      return json({
+        authenticated: true,
+        entitled: true,
+        offeringId: cloudLogin.offeringId ?? "xgpuweb",
+        market: cloudLogin.market ?? null,
+        durationInSeconds: cloudLogin.durationInSeconds ?? null,
+        regions: regions.map((region: { name?: string; baseUri?: string; isDefault?: boolean }) => ({
+          name: region.name ?? null,
+          isDefault: Boolean(region.isDefault),
+        })),
+      });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "xCloud authentication failed." }, 500);
     }
   }
 
