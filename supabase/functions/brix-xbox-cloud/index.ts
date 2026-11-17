@@ -356,6 +356,7 @@ serve(async (req) => {
         authenticated: true,
         entitled: Boolean(gpu.gsToken || f2p.gsToken),
         offerings: { gamePass: Boolean(gpu.gsToken), freeToPlay: Boolean(f2p.gsToken) },
+        offeringStatuses: { gamePass: gpuLogin.status, freeToPlay: f2pLogin.status },
         market,
         durationInSeconds: Math.max(Number(gpu.durationInSeconds ?? 0), Number(f2p.durationInSeconds ?? 0)) || null,
         regions: [...regions, ...f2pRegions].map((region: { name?: string; baseUri?: string; isDefault?: boolean }) => ({
