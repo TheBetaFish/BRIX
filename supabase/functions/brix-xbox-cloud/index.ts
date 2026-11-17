@@ -376,43 +376,58 @@ serve(async (req) => {
       let titlePayload: Record<string, unknown> | null = null;
       let selectedRegion: string | null = null;
       let lastStatus = 0;
+      let lastRegionHost: string | null = null;
+      let lastUpstreamMessage = "";
+      const attempts: Array<{ region: string | null; status: number; auth: string }> = [];
       for (const region of regions) {
-        const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\/+$/, "") : "";
-        if (!baseUri || !/^https:\/\/[a-z0-9.-]+$/i.test(baseUri)) continue;
-        const response = await fetch(`${baseUri}/v2/titles?mr=25`, {
-          headers: {
-            Authorization: `XBL3.0 x=${account.user_hash};${gsToken}`,
-            "x-xbl-contract-version": "1",
-            Accept: "application/json",
-            "Cache-Control": "no-store",
-          },
-        });
-        lastStatus = response.status;
-        if (!response.ok) {
-          const responseText = await response.text();
-          const wwwAuthenticate = response.headers.get("www-authenticate");
-          const message = (() => {
+        const baseUri = typeof region?.baseUri === "string" ? region.baseUri.replace(/\\/+$/, "") : "";
+        if (!baseUri || !/^https:\\/\\/[a-z0-9.-]+$/i.test(baseUri)) continue;
+        lastRegionHost = new URL(baseUri).host;
+        // Retry the documented alternate xCloud authorization form after 401.
+        const authHeaders = [
+          { label: "XBL3.0", value: `XBL3.0 x=${account.user_hash};${gsToken}` },
+          { label: "Bearer", value: `Bearer ${gsToken}` },
+        ];
+        for (const auth of authHeaders) {
+          const response = await fetch(`${baseUri}/v2/titles?mr=25`, {
+            headers: {
+              Authorization: auth.value,
+              "x-xbl-contract-version": "1",
+              Accept: "application/json",
+              "Cache-Control": "no-store",
+            },
+          });
+          lastStatus = response.status;
+          attempts.push({ region: region.name ?? null, status: response.status, auth: auth.label });
+          if (response.ok) {
+            const payload = await response.json();
+            if (payload && Array.isArray(payload.results)) {
+              titlePayload = payload;
+              selectedRegion = region.name ?? null;
+              break;
+            }
+          } else {
+            const responseText = await response.text();
             try {
               const parsed = JSON.parse(responseText);
-              return String(parsed.message ?? parsed.error_description ?? parsed.error ?? parsed.code ?? "").slice(0, 240);
+              lastUpstreamMessage = String(parsed.message ?? parsed.error_description ?? parsed.error ?? parsed.code ?? "").slice(0, 240);
             } catch {
-              return responseText.slice(0, 240);
+              lastUpstreamMessage = responseText.slice(0, 240);
             }
-          })();
-          lastUpstreamMessage = message;
-          lastWwwAuthenticate = wwwAuthenticate ?? "";
-          continue;
+          }
+          if (response.status !== 401) break;
         }
-        const payload = await response.json();
-        if (payload && Array.isArray(payload.results)) {
-          titlePayload = payload;
-          selectedRegion = region.name ?? null;
-          break;
-        }
+        if (titlePayload) break;
       }
 
       if (!titlePayload) {
-        return json({ error: "The xCloud title service rejected or could not process the catalog request.", upstreamStatus: lastStatus || null, upstreamMessage: lastUpstreamMessage || null, wwwAuthenticate: lastWwwAuthenticate || null }, 502);
+        return json({
+          error: "The xCloud title service rejected or could not process the catalog request.",
+          upstreamStatus: lastStatus || null,
+          upstreamHost: lastRegionHost,
+          upstreamMessage: lastUpstreamMessage || null,
+          attempts,
+        }, 502);
       }
 
       const titles = (titlePayload.results as Array<Record<string, unknown>>)
