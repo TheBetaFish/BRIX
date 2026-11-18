@@ -127,6 +127,7 @@ async function loginCloudOffering(gssvToken: string, offeringId: "xgpuweb" | "xg
     status: response.status,
     code,
     message,
+    bodyPreview: responseText.trim().slice(0, 360) || null,
     payload,
   };
 }
