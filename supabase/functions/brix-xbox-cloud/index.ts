@@ -180,7 +180,7 @@ serve(async (req) => {
       response_type: "code",
       redirect_uri: REDIRECT_URI,
       response_mode: "query",
-      scope: "XboxLive.signin XboxLive.offline_access",
+      scope: "XboxLive.signin openid profile offline_access",
       state,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -307,7 +307,7 @@ serve(async (req) => {
           client_secret: CLIENT_SECRET,
           grant_type: "refresh_token",
           refresh_token: refreshToken,
-          scope: "XboxLive.signin XboxLive.offline_access",
+          scope: "XboxLive.signin openid profile offline_access",
         }),
       });
       const refreshed = await refreshResponse.json();
