@@ -128,6 +128,8 @@ async function loginCloudOffering(gssvToken: string, offeringId: "xgpuweb" | "xg
     code,
     message,
     bodyPreview: responseText.trim().slice(0, 360) || null,
+    contentType: response.headers.get("content-type"),
+    requestId: response.headers.get("ms-cv"),
     payload,
   };
 }
@@ -360,8 +362,8 @@ serve(async (req) => {
           market: gpu.market ?? f2p.market ?? null,
           offeringStatuses: { gamePass: gpuLogin.status, freeToPlay: f2pLogin.status },
         offeringErrors: {
-          gamePass: gpuLogin.ok ? null : { code: gpuLogin.code, message: gpuLogin.message },
-          freeToPlay: f2pLogin.ok ? null : { code: f2pLogin.code, message: f2pLogin.message },
+          gamePass: gpuLogin.ok ? null : { code: gpuLogin.code, message: gpuLogin.message, bodyPreview: gpuLogin.bodyPreview, contentType: gpuLogin.contentType, requestId: gpuLogin.requestId },
+          freeToPlay: f2pLogin.ok ? null : { code: f2pLogin.code, message: f2pLogin.message, bodyPreview: f2pLogin.bodyPreview, contentType: f2pLogin.contentType, requestId: f2pLogin.requestId },
         },
         }, 502);
       }
@@ -396,8 +398,8 @@ serve(async (req) => {
         offerings: { gamePass: Boolean(gpu.gsToken), freeToPlay: Boolean(f2p.gsToken) },
         offeringStatuses: { gamePass: gpuLogin.status, freeToPlay: f2pLogin.status },
         offeringErrors: {
-          gamePass: gpuLogin.ok ? null : { code: gpuLogin.code, message: gpuLogin.message },
-          freeToPlay: f2pLogin.ok ? null : { code: f2pLogin.code, message: f2pLogin.message },
+          gamePass: gpuLogin.ok ? null : { code: gpuLogin.code, message: gpuLogin.message, bodyPreview: gpuLogin.bodyPreview, contentType: gpuLogin.contentType, requestId: gpuLogin.requestId },
+          freeToPlay: f2pLogin.ok ? null : { code: f2pLogin.code, message: f2pLogin.message, bodyPreview: f2pLogin.bodyPreview, contentType: f2pLogin.contentType, requestId: f2pLogin.requestId },
         },
         market,
         durationInSeconds: Math.max(Number(gpu.durationInSeconds ?? 0), Number(f2p.durationInSeconds ?? 0)) || null,
