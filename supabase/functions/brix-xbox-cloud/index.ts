@@ -225,7 +225,13 @@ serve(async (req) => {
 
       const userResponse = await fetch("https://user.auth.xboxlive.com/user/authenticate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-xbl-contract-version": "1" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-xbl-contract-version": "1",
+          "Cache-Control": "no-cache",
+          "Origin": "https://www.xbox.com",
+          "Referer": "https://www.xbox.com/",
+        },
         body: JSON.stringify({
           RelyingParty: "http://auth.xboxlive.com",
           TokenType: "JWT",
@@ -331,7 +337,15 @@ serve(async (req) => {
 
       const gssvXstsResponse = await fetch("https://xsts.auth.xboxlive.com/xsts/authorize", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-xbl-contract-version": "1" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-xbl-contract-version": "1",
+          "Cache-Control": "no-cache",
+          "Origin": "https://www.xbox.com",
+          "Referer": "https://www.xbox.com/",
+          "Accept": "*/*",
+          "ms-cv": "0",
+        },
         body: JSON.stringify({
           Properties: { SandboxId: "RETAIL", UserTokens: [xboxUser.Token] },
           RelyingParty: "http://gssv.xboxlive.com/",
@@ -346,10 +360,11 @@ serve(async (req) => {
 
       // Xbox exposes free-to-play cloud games (including Fortnite) through a
       // separate offering from the Game Pass Ultimate catalog.
-      const [gpuLogin, f2pLogin] = await Promise.all([
-        loginCloudOffering(gssvXsts.Token, "xgpuweb"),
-        loginCloudOffering(gssvXsts.Token, "xgpuwebf2p"),
-      ]);
+      // Keep offering requests sequential. The reference client requests the
+      // Game Pass offering first; BRIX also checks F2P explicitly because
+      // Fortnite is not guaranteed to be present in the Game Pass catalog.
+      const gpuLogin = await loginCloudOffering(gssvXsts.Token, "xgpuweb");
+      const f2pLogin = await loginCloudOffering(gssvXsts.Token, "xgpuwebf2p");
       const gpu = gpuLogin.payload;
       const f2p = f2pLogin.payload;
       if (!gpuLogin.ok && !f2pLogin.ok) {
@@ -400,6 +415,12 @@ serve(async (req) => {
         offeringErrors: {
           gamePass: gpuLogin.ok ? null : { code: gpuLogin.code, message: gpuLogin.message, bodyPreview: gpuLogin.bodyPreview, contentType: gpuLogin.contentType, requestId: gpuLogin.requestId },
           freeToPlay: f2pLogin.ok ? null : { code: f2pLogin.code, message: f2pLogin.message, bodyPreview: f2pLogin.bodyPreview, contentType: f2pLogin.contentType, requestId: f2pLogin.requestId },
+        },
+        gssvClaims: {
+          xuidPresent: Boolean(claims.xuid),
+          userHashPresent: Boolean(claims.uhs),
+          gamertagPresent: Boolean(claims.gtg),
+          xstsExpiryPresent: Boolean(gssvXsts.NotAfter),
         },
         market,
         durationInSeconds: Math.max(Number(gpu.durationInSeconds ?? 0), Number(f2p.durationInSeconds ?? 0)) || null,
